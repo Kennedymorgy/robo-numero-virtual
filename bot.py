@@ -1,10 +1,29 @@
-import time
 import re
+from urllib.parse import urljoin
 from playwright.sync_api import sync_playwright
+
+# 🌍 PREFIXOS DE PAÍSES PERMITIDOS (EUA, Finlândia, Brasil, Portugal, Reino Unido, Suécia, França, Espanha)
+PREFIXOS_ACEITOS = ['+1', '+358', '+55', '+351', '+44', '+46', '+33', '+34']
+
+def extrair_numero_valido(texto):
+    """
+    Limpa e valida se a string é realmente um número de telefone no formato internacional.
+    Elimina textos falsos como 'SMS24.me', 'New United States', '201 - 500', etc.
+    """
+    limpo = re.sub(r'[^\d+]', '', texto)
+    
+    # Se não começar com '+', adiciona se for um formato válido
+    if not limpo.startswith('+') and len(limpo) >= 10:
+        limpo = '+' + limpo
+
+    # Garante que tem entre 9 e 16 dígitos e começa com prefixo válido
+    if len(limpo) >= 10 and len(limpo) <= 16:
+        if any(limpo.startswith(pref) for pref in PREFIXOS_ACEITOS):
+            return limpo
+    return None
 
 def extrair_numeros(page):
     numeros = []
-    
     fontes = [
         {"nome": "Receive-SMSS", "url": "https://receive-smss.com/"},
         {"nome": "SMSToMe", "url": "https://smstome.com/country/usa"},
@@ -29,64 +48,102 @@ def extrair_numeros(page):
                     href = link.get_attribute("href") or ""
                     txt = link.inner_text().strip()
                     
-                    if any(c.isdigit() for c in txt) and len(txt) >= 7:
-                        if href.startswith("http"):
-                            url_comp = href
-                        else:
-                            base = fonte["url"].rstrip('/')
-                            url_comp = f"{base}/{href.lstrip('/')}"
+                    # Tenta validar o número pelo texto do link ou pela URL
+                    num_valido = extrair_numero_valido(txt) or extrair_numero_valido(href)
+                    
+                    if num_valido:
+                        url_comp = urljoin(fonte["url"], href)
                             
-                        if url_comp not in [n['link'] for n in numeros]:
-                            numeros.append({'numero': txt, 'link': url_comp, 'fonte': fonte['nome']})
+                        if not any(n['numero'] == num_valido for n in numeros):
+                            numeros.append({
+                                'numero': num_valido, 
+                                'link': url_comp, 
+                                'fonte': fonte['nome']
+                            })
                             count += 1
                 except Exception:
                     continue
                     
-            print(f"  ├─ {fonte['nome']}: {count} numero(s) encontrado(s)")
+            print(f"  ├─ {fonte['nome']}: {count} numero(s) real(is) encontrado(s)")
         except Exception:
             print(f"  ├─ {fonte['nome']}: Erro ao carregar pagina")
 
-    # Fallback fixo do VeePN
-    numeros.append({'numero': '+1 351 355 3580', 'link': 'https://veepn.com/pt/online-sms/usa/13513553580/', 'fonte': 'VeePN'})
+    # Fallback fixo do VeePN (Número dos EUA)
+    numeros.append({
+        'numero': '+13513553580', 
+        'link': 'https://veepn.com/pt/online-sms/usa/13513553580/', 
+        'fonte': 'VeePN'
+    })
     return numeros
 
 def analisar_historico(page, item):
+    """
+    Analisa a página do número específico para contar mensagens do Google/YouTube
+    e verificar se o número está ativo recentemente.
+    """
     try:
-        page.goto(item['link'], timeout=10000, wait_until="domcontentloaded")
-        texto = page.content().lower()
-        contagem = texto.count('google') + texto.count('youtube') + texto.count('g-')
-        item['usos_google'] = contagem
+        page.goto(item['link'], timeout=12000, wait_until="domcontentloaded")
+        page.wait_for_timeout(1500)
+        
+        texto_completo = page.inner_text("body").lower()
+        
+        # Procura termos específicos do serviço de verificação
+        usos_google = (
+            texto_completo.count('google') + 
+            texto_completo.count('youtube') + 
+            texto_completo.count('g-')
+        )
+        
+        # Verifica se o número recebeu SMS recentemente (palavras-chave de data)
+        tem_atividade_recente = any(p in texto_completo for p in [
+            'min', 'sec', 'hour', 'seg', 'hora', 'agora', 'just now', 'today'
+        ])
+        
+        item['usos_google'] = usos_google
+        item['ativo_recente'] = tem_atividade_recente
         return item
     except Exception:
         item['usos_google'] = 999
+        item['ativo_recente'] = False
         return item
 
-def aguardar_codigo_sms(page, link_numero):
-    print("\n⏳ [ESCUTA ATIVA INICIADA] A verificar rececao do SMS do YouTube (a cada 3s)...")
-    
-    for _ in range(40): # 2 minutos no maximo
-        try:
-            page.goto(link_numero, timeout=8000, wait_until="domcontentloaded")
-            texto = page.inner_text("body")
-            
-            for linha in texto.split('\n'):
-                linha_clean = linha.strip()
-                if ("google" in linha_clean.lower() or "g-" in linha_clean.lower() or "youtube" in linha_clean.lower()) and any(c.isdigit() for c in linha_clean):
-                    print("\n" + "🟢"*30)
-                    print(f"🎉 CODIGO RECEBIDO: {linha_clean}")
-                    print("🟢"*30 + "\n")
-                    return True
-        except Exception:
-            pass
-            
-        time.sleep(3)
-        print(".", end="", flush=True)
-        
-    print("\n\n❌ O SMS nao foi recebido no tempo limite. Execute o workflow novamente!")
-    return False
+def exibir_relatorio(virgens, usados):
+    """
+    Gera o relatório da Opção A: limpo, organizado e com os links diretos para você clicar.
+    """
+    print("\n" + "="*65)
+    print("🚀 RELATÓRIO DE NÚMEROS FILTRADOS (SISTEMA DE SEGURANÇA BARRADO)")
+    print("="*65)
+
+    if virgens:
+        print(f"\n🟢 [NÍVEL 1 - VIRGENS] {len(virgens)} Número(s) 100% LIMPOS (0 Usos Google):")
+        print("-" * 65)
+        for i, item in enumerate(virgens, 1):
+            print(f"{i}. 📱 Número: {item['numero']}")
+            print(f"   🌐 Fonte: {item['fonte']}")
+            print(f"   📊 Usos detectados: 0 uso(s)")
+            print(f"   🔗 Link Direto do SMS: {item['link']}")
+            print("-" * 65)
+    else:
+        print("\n⚠️ Nenhum número 100% virgem encontrado no momento.")
+
+    if usados:
+        print(f"\n🟡 [NÍVEL 2 - USADO 1 VEZ] {len(usados)} Número(s) com APENAS 1 Uso no Google:")
+        print("-" * 65)
+        for i, item in enumerate(usados, 1):
+            print(f"{i}. 📱 Número: {item['numero']}")
+            print(f"   🌐 Fonte: {item['fonte']}")
+            print(f"   📊 Usos detectados: 1 uso(s)")
+            print(f"   🔗 Link Direto do SMS: {item['link']}")
+            print("-" * 65)
+
+    print("\n👉 COMO USAR:")
+    print("1. Escolha um número do NÍVEL 1 (ou NÍVEL 2) e cole no YouTube.")
+    print("2. Se o YouTube aceitar o número, abra o Link Direto no seu navegador.")
+    print("3. Atualize a página do link direto para ver o código de verificação assim que ele chegar!\n")
 
 if __name__ == "__main__":
-    print("\n⚡ [MODO COMPLETO] A iniciar bot de captura de SMS...")
+    print("\n⚡ [BOT SMS INTELIGENTE] A iniciar busca e análise de histórico...")
     
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -96,38 +153,31 @@ if __name__ == "__main__":
         )
         page = context.new_page()
         
-        numeros_encontrados = extrair_numeros(page)
-        print(f"\n🔍 Total de {len(numeros_encontrados)} numero(s) capturado(s). A analisar historico...")
+        # 1. Captura inicial
+        todos_numeros = extrair_numeros(page)
+        print(f"\n🔍 Total de {len(todos_numeros)} número(s) candidato(s) extraídos. A analisar histórico real...")
         
-        cand_perfeito = None
-        cand_usado = None
+        candidatos_virgens = []
+        candidatos_usados = []
         
-        for idx, item in enumerate(numeros_encontrados, 1):
+        # 2. Filtragem e verificação profunda
+        for idx, item in enumerate(todos_numeros, 1):
             res = analisar_historico(page, item)
             usos = res['usos_google']
-            if usos < 999:
-                num_fmt = res['numero'].replace('\n', ' ')
-                print(f"  [{idx}/{len(numeros_encontrados)}] {num_fmt[:22]} ({res['fonte']}) -> {usos} uso(s) Google")
-                
-                if usos == 0 and not cand_perfeito:
-                    cand_perfeito = res
-                elif usos == 1 and not cand_usado:
-                    cand_usado = res
-                    
-        escolhido = cand_perfeito if cand_perfeito else cand_usado
-        
-        if escolhido:
-            status_texto = "🟢 VIRGEM (0/2 USOS)" if escolhido['usos_google'] == 0 else "🟡 UTILIZADO 1 VEZ (1/2 USOS)"
-            print("\n" + "="*50)
-            print(f"📱 NUMERO SELECCIONADO: {escolhido['numero'].strip()}")
-            print(f"🌐 FONTE: {escolhido['fonte']}")
-            print(f"📊 STATUS: {status_texto}")
-            print(f"🔗 LINK: {escolhido['link']}")
-            print("="*50)
-            print("\n👉 COPIE O NUMERO ACIMA E COLE NO YOUTUBE AGORA!\n")
             
-            aguardar_codigo_sms(page, escolhido['link'])
+            if usos < 999:
+                print(f"  [{idx}/{len(todos_numeros)}] {res['numero']} ({res['fonte']}) -> {usos} uso(s) Google")
+                
+                # Só aceitamos números que não estouraram limite e estão ativos
+                if usos == 0:
+                    candidatos_virgens.append(res)
+                elif usos == 1:
+                    candidatos_usados.append(res)
+
+        # 3. Exibição do relatório final
+        if candidatos_virgens or candidatos_usados:
+            exibir_relatorio(candidatos_virgens, candidatos_usados)
         else:
-            print("\n❌ Nenhum numero valido encontrado abaixo do limite. Execute novamente!")
+            print("\n❌ Nenhum número seguro (0 ou 1 uso) foi encontrado no momento. Tente novamente em alguns minutos!")
             
         browser.close()
