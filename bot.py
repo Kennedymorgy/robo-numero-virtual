@@ -5,7 +5,10 @@ from playwright.sync_api import sync_playwright
 # 🌍 PREFIXOS PERMITIDOS
 PREFIXOS_ACEITOS = ['+1', '+358', '+55', '+351', '+44', '+46', '+33', '+34']
 
-def extrair_numero_valido(texto):
+def extrair_numero_limpo(texto):
+    """
+    Extrai apenas os dígitos e o sinal de mais (+) para validar o formato internacional.
+    """
     limpo = re.sub(r'[^\d+]', '', texto)
     if not limpo.startswith('+') and len(limpo) >= 10:
         limpo = '+' + limpo
@@ -15,127 +18,114 @@ def extrair_numero_valido(texto):
             return limpo
     return None
 
-def calcular_idade_em_minutos(texto):
+def construir_link_direto(base_url, href, numero_limpo):
     """
-    Identifica há quanto tempo o número foi ADICIONADO ao site.
-    Retorna o tempo em minutos.
+    Garante que o link aponta diretamente para a página do SMS do número,
+    evitando redirecionamentos para a página inicial (como acontecia no Quackr).
     """
-    texto_lower = texto.lower()
-    
-    # Procura por padrões como: "added 10 mins ago", "15 minutes ago", "2 hours ago", "há 10 min"
-    match_min = re.search(r'(\d+)\s*(min|minute|minuto)s?\b', texto_lower)
-    match_hor = re.search(r'(\d+)\s*(hour|hora|hr)s?\b', texto_lower)
-    match_day = re.search(r'(\d+)\s*(day|dia)s?\b', texto_lower)
-
-    if match_min:
-        return int(match_min.group(1))
-    elif match_hor:
-        return int(match_hor.group(1)) * 60
-    elif match_day:
-        return int(match_day.group(1)) * 1440
-    
-    # Se disser "just now" ou "agora"
-    if any(p in texto_lower for p in ['just now', 'agora', 'new', 'novo']):
-        return 1
+    if not href or href == "#" or "javascript" in href:
+        return None
         
-    return 999999  # Se não encontrar carimbo de tempo, assume que é antigo/desconhecido
+    url_completa = urljoin(base_url, href)
+    digitos_numero = re.sub(r'\D', '', numero_limpo)[-7:] # Pega os últimos 7 dígitos
+    
+    # O link precisa conter os dígitos do número para ser o link da caixa de SMS real
+    if digitos_numero in url_completa:
+        return url_completa
+    return None
 
 def extrair_numeros(page):
     numeros = []
     fontes = [
-        {"nome": "AnonymSMS", "url": "https://anonymsms.com/"},
-        {"nome": "TempSMSS", "url": "https://tempsmss.com/"},
         {"nome": "Receive-SMSS", "url": "https://receive-smss.com/"},
-        {"nome": "SMS24", "url": "https://sms24.me/en/countries/us"},
         {"nome": "SMSToMe", "url": "https://smstome.com/country/usa"},
-        {"nome": "Quackr", "url": "https://quackr.io/temporary-numbers"}
+        {"nome": "AnonymSMS", "url": "https://anonymsms.com/"},
+        {"nome": "Quackr", "url": "https://quackr.io/temporary-numbers"},
+        {"nome": "TempSMSS", "url": "https://tempsmss.com/"},
+        {"nome": "SMS24", "url": "https://sms24.me/en/countries/us"}
     ]
 
-    print("\n🌐 A varrer sites buscando NÚMEROS RECÉM-CRIADOS...")
+    print("\n🌐 A varrer sites de SMS com navegacao Playwright...")
 
     for fonte in fontes:
         try:
             page.goto(fonte["url"], timeout=15000, wait_until="domcontentloaded")
             page.wait_for_timeout(2000)
             
-            # Captura elementos de bloco/cards que contêm o número e o tempo de publicação
-            elementos = page.locator("a, div, article, li").all()
+            links = page.locator("a").all()
             count = 0
             
-            for el in elementos:
+            for link in links:
                 try:
-                    txt = el.inner_text().strip()
-                    href = el.get_attribute("href") or ""
+                    href = link.get_attribute("href") or ""
+                    txt = link.inner_text().strip()
                     
-                    num_valido = extrair_numero_valido(txt) or extrair_numero_valido(href)
+                    num_valido = extrair_numero_limpo(txt) or extrair_numero_limpo(href)
                     
                     if num_valido:
-                        url_comp = urljoin(fonte["url"], href) if href else fonte["url"]
-                        idade_min = calcular_idade_em_minutos(txt)
+                        link_direto = construir_link_direto(fonte["url"], href, num_valido)
                         
-                        if not any(n['numero'] == num_valido for n in numeros):
+                        if link_direto and not any(n['numero'] == num_valido for n in numeros):
                             numeros.append({
                                 'numero': num_valido, 
-                                'link': url_comp, 
-                                'fonte': fonte['nome'],
-                                'idade_minutos': idade_min
+                                'link': link_direto, 
+                                'fonte': fonte['nome']
                             })
                             count += 1
                 except Exception:
                     continue
                     
-            print(f"  ├─ {fonte['nome']}: {count} número(s) analisado(s)")
+            print(f"  ├─ {fonte['nome']}: {count} numero(s) com link direto valido")
         except Exception:
-            print(f"  ├─ {fonte['nome']}: Erro ao carregar página")
+            print(f"  ├─ {fonte['nome']}: Erro ao carregar pagina")
 
     return numeros
 
-def analisar_historico_profundo(page, item):
+def analisar_historico_youtube(page, item):
+    """
+    Analisa as mensagens recebidas no número para contar usos do Google/YouTube.
+    """
     try:
         page.goto(item['link'], timeout=12000, wait_until="domcontentloaded")
-        page.wait_for_timeout(1000)
+        page.wait_for_timeout(1500)
         
-        texto_bruto = page.inner_text("body")
-        texto_lower = texto_bruto.lower()
+        texto_completo = page.inner_text("body").lower()
         
-        # Tenta pegar a idade na página interna do número caso não tenha pego na home
-        if item['idade_minutos'] == 999999:
-            item['idade_minutos'] = calcular_idade_em_minutos(texto_bruto)
-            
-        usos_google = (
-            texto_lower.count('youtube') + 
-            texto_lower.count('google') + 
-            len(re.findall(r'\bg-\d{5,6}\b', texto_lower))
+        # Procura por códigos de validação específicos do Google/YouTube
+        mencoes_directas = (
+            texto_completo.count('youtube') + 
+            texto_completo.count('google')
         )
+        codigos_g = len(re.findall(r'\bg-\d{5,6}\b', texto_completo))
         
-        item['usos_google'] = usos_google
+        total_usos = mencoes_directas + codigos_g
+        
+        item['usos_google'] = total_usos
         return item
     except Exception:
         item['usos_google'] = 999
         return item
 
-def exibir_relatorio(perfeitos):
+def exibir_relatorio(numeros_validos):
     print("\n" + "="*70)
-    print("🔥 RELATÓRIO: NÚMEROS RECÉM-ADICIONADOS (< 12 HORAS DE VIDA)")
+    print("🚀 RELATÓRIO DE NÚMEROS PRONTOS PARA O YOUTUBE (0 OU 1 USO)")
     print("="*70)
 
-    if perfeitos:
-        for i, item in enumerate(perfeitos, 1):
-            horas = item['idade_minutos'] // 60
-            mins = item['idade_minutos'] % 60
-            tempo_str = f"{horas}h {mins}m" if horas > 0 else f"{mins} min"
+    if numeros_validos:
+        for i, item in enumerate(numeros_validos, 1):
+            usos = item['usos_google']
+            status_tag = "🟢 [VIRGEM - 0/2 USOS]" if usos == 0 else "🟡 [1 USO - 1 VAGA RESTANTE]"
             
-            print(f"{i}. 📱 {item['numero']} 🔥 [CRIADO HÁ: {tempo_str}]")
+            print(f"{i}. 📱 {item['numero']} {status_tag}")
             print(f"   🌐 Fonte: {item['fonte']}")
-            print(f"   📊 Registros Detectados: {item['usos_google']}")
-            print(f"   🔗 Link Direto: {item['link']}")
+            print(f"   📊 Verificações detectadas no histórico: {usos}")
+            print(f"   🔗 Link Direto do SMS: {item['link']}")
             print("-" * 70)
     else:
-        print("\n❌ NENHUM NÚMERO NOVO (< 12H) ENCONTRADO NO MOMENTO.")
-        print("💡 Dica: Os sites atualizam números ao longo do dia. Tente rodar o bot mais tarde!")
+        print("\n❌ Nenhum número com vaga disponível (0 ou 1 uso) encontrado nesta varredura.")
 
 if __name__ == "__main__":
-    print("\n⚡ [BOT YOUTUBE INTELIGENTE v3] Filtrando apenas números NOVOS do dia...")
+    print("\n⚡ [BOT YOUTUBE SMS] A iniciar varredura e validação...")
     
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -145,23 +135,25 @@ if __name__ == "__main__":
         )
         page = context.new_page()
         
-        todos = extrair_numeros(page)
-        print(f"\n🔍 Total de {len(todos)} candidatos. Filtrando por IDADE DE CRIAÇÃO e histórico...")
+        candidatos = extrair_numeros(page)
+        print(f"\n🔍 Total de {len(candidatos)} número(s) com link direto válido. A verificar histórico...")
         
-        filtrados_frescos = []
+        numeros_aprovados = []
         
-        for idx, item in enumerate(todos, 1):
-            res = analisar_historico_profundo(page, item)
+        for idx, item in enumerate(candidatos, 1):
+            res = analisar_historico_youtube(page, item)
+            usos = res['usos_google']
             
-            # FILTRO RÍGIDO: Só aceita se tiver menos de 720 minutos (12 horas) e 0 usos de Google
-            if res['idade_minutos'] <= 720 and res['usos_google'] == 0:
-                filtrados_frescos.append(res)
-                print(f"  ├─ 🟢 [ACEITO] {res['numero']} (Adicionado há {res['idade_minutos']} min)")
+            # YouTube permite ATÉ 2 USOS POR ANO.
+            # Portanto, 0 ou 1 uso ainda funcionam! 2 ou mais são descartados.
+            if usos <= 1:
+                numeros_aprovados.append(res)
+                print(f"  ├─ 🟢 [APROVADO] {res['numero']} ({res['fonte']}) -> {usos} uso(s)")
             else:
-                print(f"  ├─ 🔴 [DESCARTADO/VELHO] {res['numero']} (Idade: {res['idade_minutos']} min | Usos: {res['usos_google']})")
+                print(f"  ├─ 🔴 [BLOQUEADO] {res['numero']} ({res['fonte']}) -> {usos} uso(s) (Limite estourado)")
 
-        # Ordena colocando os números mais NOVOS em primeiro lugar
-        filtrados_frescos.sort(key=lambda x: x['idade_minutos'])
+        # Ordena colocando os de 0 usos primeiro, depois os de 1 uso
+        numeros_aprovados.sort(key=lambda x: x['usos_google'])
         
-        exibir_relatorio(filtrados_frescos)
+        exibir_relatorio(numeros_aprovados)
         browser.close()
