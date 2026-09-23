@@ -2,22 +2,19 @@ import re
 from urllib.parse import urljoin
 from playwright.sync_api import sync_playwright
 
-# 🌍 PREFIXOS DE PAÍSES PERMITIDOS (EUA, Finlândia, Brasil, Portugal, Reino Unido, Suécia, França, Espanha)
+# 🌍 PREFIXOS DE PAÍSES PERMITIDOS
 PREFIXOS_ACEITOS = ['+1', '+358', '+55', '+351', '+44', '+46', '+33', '+34']
 
 def extrair_numero_valido(texto):
     """
-    Limpa e valida se a string é realmente um número de telefone no formato internacional.
-    Elimina textos falsos como 'SMS24.me', 'New United States', '201 - 500', etc.
+    Valida e formata números no padrão internacional.
+    Filtra textos falsos e categorias dos sites.
     """
     limpo = re.sub(r'[^\d+]', '', texto)
-    
-    # Se não começar com '+', adiciona se for um formato válido
     if not limpo.startswith('+') and len(limpo) >= 10:
         limpo = '+' + limpo
 
-    # Garante que tem entre 9 e 16 dígitos e começa com prefixo válido
-    if len(limpo) >= 10 and len(limpo) <= 16:
+    if 10 <= len(limpo) <= 16:
         if any(limpo.startswith(pref) for pref in PREFIXOS_ACEITOS):
             return limpo
     return None
@@ -48,7 +45,6 @@ def extrair_numeros(page):
                     href = link.get_attribute("href") or ""
                     txt = link.inner_text().strip()
                     
-                    # Tenta validar o número pelo texto do link ou pela URL
                     num_valido = extrair_numero_valido(txt) or extrair_numero_valido(href)
                     
                     if num_valido:
@@ -64,11 +60,11 @@ def extrair_numeros(page):
                 except Exception:
                     continue
                     
-            print(f"  ├─ {fonte['nome']}: {count} numero(s) real(is) encontrado(s)")
+            print(f"  ├─ {fonte['nome']}: {count} numero(s) encontrado(s)")
         except Exception:
             print(f"  ├─ {fonte['nome']}: Erro ao carregar pagina")
 
-    # Fallback fixo do VeePN (Número dos EUA)
+    # Fallback fixo do VeePN
     numeros.append({
         'numero': '+13513553580', 
         'link': 'https://veepn.com/pt/online-sms/usa/13513553580/', 
@@ -76,74 +72,82 @@ def extrair_numeros(page):
     })
     return numeros
 
-def analisar_historico(page, item):
+def analisar_historico_profundo(page, item):
     """
-    Analisa a página do número específico para contar mensagens do Google/YouTube
-    e verificar se o número está ativo recentemente.
+    Analisa a fundo a página do número:
+    - Busca códigos G-XXXXXX e menções a YouTube/Google/Verificação.
+    - Avalia a quantidade total de SMS para saber se o número é NOVO/RECÉM-CRIADO.
     """
     try:
         page.goto(item['link'], timeout=12000, wait_until="domcontentloaded")
         page.wait_for_timeout(1500)
         
-        texto_completo = page.inner_text("body").lower()
+        texto_bruto = page.inner_text("body")
+        texto_lower = texto_bruto.lower()
         
-        # Procura termos específicos do serviço de verificação
-        usos_google = (
-            texto_completo.count('google') + 
-            texto_completo.count('youtube') + 
-            texto_completo.count('g-')
+        # 1. Busca por padrões de verificação do Google/YouTube
+        mencoes_directas = (
+            texto_lower.count('youtube') + 
+            texto_lower.count('google') + 
+            texto_lower.count('g-')
         )
         
-        # Verifica se o número recebeu SMS recentemente (palavras-chave de data)
-        tem_atividade_recente = any(p in texto_completo for p in [
-            'min', 'sec', 'hour', 'seg', 'hora', 'agora', 'just now', 'today'
-        ])
+        # 2. Busca por códigos no formato 'G-123456' ou SMS típicos de validação
+        codigos_g = len(re.findall(r'\bg-\d{5,6}\b', texto_lower))
+        codigos_genericos = len(re.findall(r'\b(código|verification|code|verify)\b', texto_lower))
         
-        item['usos_google'] = usos_google
-        item['ativo_recente'] = tem_atividade_recente
+        total_alertas_yt = mencoes_directas + (codigos_g * 2)
+        
+        # 3. Estimativa de mensagens na página (se tiver pouca mensagem, o número é NOVO no site)
+        linhas = [l for l in texto_bruto.split('\n') if len(l.strip()) > 10]
+        total_sms_estimado = len(linhas)
+
+        item['usos_youtube'] = total_alertas_yt
+        item['total_sms_pagina'] = total_sms_estimado
+        item['is_novo'] = total_sms_estimado < 40  # Poucas mensagens = número novo no site
         return item
     except Exception:
-        item['usos_google'] = 999
-        item['ativo_recente'] = False
+        item['usos_youtube'] = 999
+        item['total_sms_pagina'] = 999
+        item['is_novo'] = False
         return item
 
-def exibir_relatorio(virgens, usados):
-    """
-    Gera o relatório da Opção A: limpo, organizado e com os links diretos para você clicar.
-    """
-    print("\n" + "="*65)
-    print("🚀 RELATÓRIO DE NÚMEROS FILTRADOS (SISTEMA DE SEGURANÇA BARRADO)")
-    print("="*65)
+def exibir_relatorio(perfeitos, aceitaveis):
+    print("\n" + "="*70)
+    print("🚀 RELATÓRIO DE NÚMEROS FILTRADOS (FOCO EM VERIFICAÇÃO YOUTUBE)")
+    print("="*70)
 
-    if virgens:
-        print(f"\n🟢 [NÍVEL 1 - VIRGENS] {len(virgens)} Número(s) 100% LIMPOS (0 Usos Google):")
-        print("-" * 65)
-        for i, item in enumerate(virgens, 1):
-            print(f"{i}. 📱 Número: {item['numero']}")
+    if perfeitos:
+        print(f"\n🟢 [NÍVEL 1 - RECOMENDADOS YOUTUBE] ({len(perfeitos)} Números Limpos/Novos):")
+        print("   (Números sem registros de 'G-' ou 'YouTube' e recém-adicionados aos sites)")
+        print("-" * 70)
+        for i, item in enumerate(perfeitos, 1):
+            tag_novo = "🔥 [NOVO NO SITE]" if item['is_novo'] else "✅ [HISTÓRICO LIMPO]"
+            print(f"{i}. 📱 {item['numero']} {tag_novo}")
             print(f"   🌐 Fonte: {item['fonte']}")
-            print(f"   📊 Usos detectados: 0 uso(s)")
-            print(f"   🔗 Link Direto do SMS: {item['link']}")
-            print("-" * 65)
+            print(f"   📊 Registros de Verificação: {item['usos_youtube']}")
+            print(f"   🔗 Link Direto: {item['link']}")
+            print("-" * 70)
     else:
-        print("\n⚠️ Nenhum número 100% virgem encontrado no momento.")
+        print("\n⚠️ Nenhum número do Nível 1 encontrado nesta varredura.")
 
-    if usados:
-        print(f"\n🟡 [NÍVEL 2 - USADO 1 VEZ] {len(usados)} Número(s) com APENAS 1 Uso no Google:")
-        print("-" * 65)
-        for i, item in enumerate(usados, 1):
-            print(f"{i}. 📱 Número: {item['numero']}")
+    if aceitaveis:
+        print(f"\n🟡 [NÍVEL 2 - SEGUNDA OPÇÃO] ({len(aceitaveis)} Números com baixo uso):")
+        print("-" * 70)
+        for i, item in enumerate(aceitaveis, 1):
+            print(f"{i}. 📱 {item['numero']}")
             print(f"   🌐 Fonte: {item['fonte']}")
-            print(f"   📊 Usos detectados: 1 uso(s)")
-            print(f"   🔗 Link Direto do SMS: {item['link']}")
-            print("-" * 65)
+            print(f"   📊 Registros de Verificação: {item['usos_youtube']}")
+            print(f"   🔗 Link Direto: {item['link']}")
+            print("-" * 70)
 
-    print("\n👉 COMO USAR:")
-    print("1. Escolha um número do NÍVEL 1 (ou NÍVEL 2) e cole no YouTube.")
-    print("2. Se o YouTube aceitar o número, abra o Link Direto no seu navegador.")
-    print("3. Atualize a página do link direto para ver o código de verificação assim que ele chegar!\n")
+    print("\n💡 INSTRUÇÕES DE USO DA OPÇÃO A:")
+    print("1. Escolha de preferência um número marcados como 🔥 [NOVO NO SITE] do NÍVEL 1.")
+    print("2. Cole o número na verificação do YouTube.")
+    print("3. Abrindo o Link Direto no navegador, atualize a página até o código chegar!")
 
 if __name__ == "__main__":
-    print("\n⚡ [BOT SMS INTELIGENTE] A iniciar busca e análise de histórico...")
+    print("\n⚡ [BOT YOUTUBE SMS] A iniciar varredura e verificação de histórico de miniatura/canal...")
     
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -153,31 +157,32 @@ if __name__ == "__main__":
         )
         page = context.new_page()
         
-        # 1. Captura inicial
-        todos_numeros = extrair_numeros(page)
-        print(f"\n🔍 Total de {len(todos_numeros)} número(s) candidato(s) extraídos. A analisar histórico real...")
+        todos = extrair_numeros(page)
+        print(f"\n🔍 Total de {len(todos)} candidato(s) extraídos. A analisar histórico específico de YouTube...")
         
-        candidatos_virgens = []
-        candidatos_usados = []
+        perfeitos = []
+        aceitaveis = []
         
-        # 2. Filtragem e verificação profunda
-        for idx, item in enumerate(todos_numeros, 1):
-            res = analisar_historico(page, item)
-            usos = res['usos_google']
+        for idx, item in enumerate(todos, 1):
+            res = analisar_historico_profundo(page, item)
+            usos = res['usos_youtube']
             
             if usos < 999:
-                print(f"  [{idx}/{len(todos_numeros)}] {res['numero']} ({res['fonte']}) -> {usos} uso(s) Google")
+                status = "FRESH/LIMPO" if usos == 0 else f"{usos} alerta(s)"
+                print(f"  [{idx}/{len(todos)}] {res['numero']} ({res['fonte']}) -> {status}")
                 
-                # Só aceitamos números que não estouraram limite e estão ativos
+                # Se não tem nenhum uso do Google/YouTube, entra para o Nível 1
                 if usos == 0:
-                    candidatos_virgens.append(res)
-                elif usos == 1:
-                    candidatos_usados.append(res)
+                    perfeitos.append(res)
+                elif usos <= 2 and res['is_novo']:
+                    aceitaveis.append(res)
 
-        # 3. Exibição do relatório final
-        if candidatos_virgens or candidatos_usados:
-            exibir_relatorio(candidatos_virgens, candidatos_usados)
+        # Ordena colocando os números mais NOVOS no topo da lista
+        perfeitos.sort(key=lambda x: (not x['is_novo'], x['total_sms_pagina']))
+        
+        if perfeitos or aceitaveis:
+            exibir_relatorio(perfeitos, aceitaveis)
         else:
-            print("\n❌ Nenhum número seguro (0 ou 1 uso) foi encontrado no momento. Tente novamente em alguns minutos!")
+            print("\n❌ Nenhum número seguro para o YouTube encontrado no momento. Execute novamente em alguns instantes!")
             
         browser.close()
