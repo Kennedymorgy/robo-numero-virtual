@@ -89,7 +89,10 @@ def bot_1_minerador_topo(jogo, categoria):
     try:
         res = requests.get(url, headers=HEADERS_DESKTOP, cookies=COOKIES_YT, timeout=10)
         if res.status_code == 200:
-            match = re.search(r'var ytInitialData = ({.*?});</script>', res.text)
+            match = re.search(r'var ytInitialData\s*=\s*({.*?});</script>', res.text, re.DOTALL)
+            if not match:
+                match = re.search(r'window\["ytInitialData"\]\s*=\s*({.*?});', res.text, re.DOTALL)
+                
             if match:
                 data = json.loads(match.group(1))
                 contents = data.get('contents', {}).get('twoColumnSearchResultsRenderer', {}).get('primaryContents', {}).get('sectionListRenderer', {}).get('contents', [])
@@ -184,7 +187,7 @@ def bot_2_super_raspador_hashtags(video_ids, jogo):
         except Exception:
             pass
 
-    if len(todas_hashtags_consolidadas) >= len(maior_pacote_unico):
+    if len(todas_hashtags_consolidadas) >= len(maior_pacote_unico) and todas_hashtags_consolidadas:
         return todas_hashtags_consolidadas
     return maior_pacote_unico
 
