@@ -18,7 +18,6 @@ COOKIES_YT = {
     "SOCS": "CAI"
 }
 
-# Bloqueio de termos de sistema, canais de terceiros e ruídos
 LIXO_SISTEMA_E_CANANIS = {
     'vídeo', 'compartilhamento', 'celular com câmera', 'videofone', 'gratuito', 'envio',
     'video', 'sharing', 'camera phone', 'free', 'upload', 'youtube', 'yt', 'shorts',
@@ -29,11 +28,11 @@ LIXO_SISTEMA_E_CANANIS = {
 }
 
 def eh_hex_color(string):
-    """Filtra códigos de cores CSS em hexadecimal do HTML do YouTube (ex: fff, 0f0f0f, e3e3e3)."""
+    """Filtra vazamentos de cores CSS Hexadecimal do HTML do YouTube."""
     return bool(re.fullmatch(r'^[0-9a-fA-F]{3}$|^[0-9a-fA-F]{6}$|^[0-9a-fA-F]{8}$', string))
 
 def limpar_titulo_anti_strike(titulo):
-    """Substitui termos sensíveis nos títulos para proteção contra avisos/strikes."""
+    """Higieniza termos sensíveis nos títulos para proteção da conta."""
     substituicoes = {
         r'\bHACK\b': 'Showcase',
         r'\bHACKS\b': 'Gameplay',
@@ -50,7 +49,7 @@ def limpar_titulo_anti_strike(titulo):
     return titulo_limpo.strip()
 
 def eh_hashtag_valida(ht_raw, jogo):
-    """Garante que apenas hashtags reais e limpas passem pelo filtro."""
+    """Garante apenas hashtags reais, sem códigos de sistema ou anos antigos."""
     ht = ht_raw.lower().replace("#", "").strip()
 
     if len(ht) < 2 or ht.isdigit() or ht in LIXO_SISTEMA_E_CANANIS:
@@ -60,7 +59,7 @@ def eh_hashtag_valida(ht_raw, jogo):
         return False
 
     if re.search(r'_\d+$', ht) or ('tv' in ht and len(ht) > 8):
-        if not any(k in ht for k in ['mod', 'apk', 'game', 'gameplay', 'sky', 'ava']):
+        if not any(k in ht for k in ['mod', 'apk', 'game', 'gameplay', 'sky', 'cheto', 'ava', 'menu']):
             return False
 
     for ano in range(2010, ANO_ATUAL):
@@ -70,7 +69,7 @@ def eh_hashtag_valida(ht_raw, jogo):
     return True
 
 def buscar_autocomplete_yt(termo, lang="pt", country="BR"):
-    """Consulta em tempo real a API de pesquisas reais do YouTube."""
+    """Consulta o serviço de autocomplete oficial do YouTube."""
     url = f"http://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q={urllib.parse.quote(termo)}&gl={country}&hl={lang}"
     try:
         r = requests.get(url, headers=HEADERS_DESKTOP, timeout=5)
@@ -81,13 +80,13 @@ def buscar_autocomplete_yt(termo, lang="pt", country="BR"):
     return []
 
 # ==============================================================================
-# SISTEMA QUAD-BOT (4 ENGINES TRABALHANDO EM CONJUNTO)
+# SISTEMA PENTA-BOT (5 ROBÔS EM CONJUNTO)
 # ==============================================================================
 
 def bot_1_minerador_topo(jogo, categoria):
     """
-    BOT 1: Extrai os 4 melhores títulos anti-strike e identifica nomes
-    específicos de mods/menus em alta nos títulos (ex: Sky Ava, Bully Mod).
+    BOT 1: Coleta os 4 melhores títulos do topo (anti-strike) e
+    detecta termos de mods virais nos títulos (ex: Cheto, Sky Ava, EV Loader).
     """
     termo_busca = f"{jogo} mod apk" if categoria == "android" else f"{jogo} ppsspp"
     url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(termo_busca)}"
@@ -122,20 +121,19 @@ def bot_1_minerador_topo(jogo, categoria):
     except Exception as e:
         print(f"[-] Bot 1 Aviso: {e}")
 
-    # Detecta nomes de mods e menus específicos que estão nos títulos reais
     mod_terms_titulos = []
     for t in titulos:
-        m = re.findall(r'\b(sky ava|sky mod|sky|bully|cheto|vip|mod menu|xp)\b', t, re.IGNORECASE)
+        m = re.findall(r'\b(sky ava|sky mod|sky|cheto|ev loader|bully|vip|mod menu|xp|auto farm)\b', t, re.IGNORECASE)
         for item in m:
             if item.lower() not in mod_terms_titulos:
                 mod_terms_titulos.append(item.lower())
 
     return titulos, video_ids, mod_terms_titulos
 
-def bot_2_hashtags_massivas_top10(video_ids, jogo):
+def bot_2_super_raspador_hashtags(video_ids, jogo):
     """
-    BOT 2: Varre a descrição de TODOS OS 10 VÍDEOS DO TOPO e raspa
-    100% das hashtags reais. Separa as grudadas e desduplica sem perdas.
+    BOT 2: Varre 10 vídeos do topo, extrai hashtags do JSON interno e do HTML,
+    desgruda hashtags coladas (#a#b), trata Unicode (\\u0023) e remove lixos de CSS.
     """
     todas_hashtags = []
     seen = set()
@@ -147,15 +145,21 @@ def bot_2_hashtags_massivas_top10(video_ids, jogo):
             if res.status_code == 200:
                 html = res.text
                 
-                desc_match = re.search(r'"shortDescription":"(.*?)","isCrawlable"', html)
-                texto_desc = desc_match.group(1) if desc_match else ""
-                
-                meta_desc = re.search(r'<meta\s+name="description"\s+content="([^"]+)"', html, re.IGNORECASE)
-                if meta_desc:
-                    texto_desc += " " + meta_desc.group(1)
+                # Decodifica unicodes comuns de hashtag
+                html_clean = html.replace('\\u0023', '#')
 
-                # Desgruda hashtags coladas: #skyava#avakin -> #skyava #avakin
-                texto_formatado = re.sub(r'#', ' #', texto_desc)
+                # Captura de blocos de texto no JSON do YouTube
+                texto_alvo = ""
+                matches_json = re.findall(r'"text":"([^"]+)"', html_clean)
+                if matches_json:
+                    texto_alvo += " ".join(matches_json)
+
+                desc_match = re.search(r'"shortDescription":"(.*?)","isCrawlable"', html_clean)
+                if desc_match:
+                    texto_alvo += " " + desc_match.group(1)
+
+                # Desgruda hashtags grudadas (#a#b -> #a #b)
+                texto_formatado = re.sub(r'#', ' #', texto_alvo)
                 raw_hts = re.findall(r'#([a-zA-Z0-9_]+)', texto_formatado)
 
                 for ht in raw_hts:
@@ -172,8 +176,8 @@ def bot_2_hashtags_massivas_top10(video_ids, jogo):
 
 def bot_3_autocomplete_deep(jogo, categoria, idioma_modo, mod_terms_titulos):
     """
-    BOT 3: Mineração alfabética e profunda na API de busca do YouTube,
-    incluindo termos de mods específicos pegos pelo Bot 1 (ex: Sky Ava).
+    BOT 3: Mineração alfabética nas buscas reais do YouTube incluindo
+    termos de mods específicos encontrados pelo Bot 1.
     """
     j_clean = re.sub(r'[^a-zA-Z0-9 ]', '', jogo).strip()
 
@@ -183,10 +187,11 @@ def bot_3_autocomplete_deep(jogo, categoria, idioma_modo, mod_terms_titulos):
         f"{j_clean} dinheiro infinito",
         f"{j_clean} mediafire",
         f"{j_clean} atualizado",
-        f"como baixar {j_clean} mod"
+        f"como baixar {j_clean} mod",
+        f"{j_clean} sem key",
+        f"{j_clean} link direto"
     ]
 
-    # Injeta buscas focadas com o nome do mod específico do momento (Sky Ava, etc)
     for term in mod_terms_titulos:
         base_queries.append(f"{j_clean} {term}")
 
@@ -209,11 +214,8 @@ def bot_3_autocomplete_deep(jogo, categoria, idioma_modo, mod_terms_titulos):
 
 def bot_4_inteligencia_cruzada(buscas_bot3, video_ids, jogo, categoria, mod_terms_titulos):
     """
-    BOT 4 (INTELIGÊNCIA SUPERIOR):
-    1. Extrai tags/keywords ocultas dos vídeos do topo.
-    2. Cruza com as buscas do Autocomplete do Bot 3 e termos do Bot 1 (ex: Sky Ava).
-    3. Pontua os termos que aparecem em AMBAS as fontes (Tags 100% Reais e Fortes).
-    4. Garante preenchimento perfeito do limite de 500 caracteres.
+    BOT 4: Cruza buscas reais com as palavras-chave ocultas dos vídeos do topo
+    e ranqueia os termos mais fortes até atingir 500 caracteres.
     """
     keywords_internas_videos = []
     for v_id in video_ids[:8]:
@@ -229,7 +231,6 @@ def bot_4_inteligencia_cruzada(buscas_bot3, video_ids, jogo, categoria, mod_term
             pass
 
     todas_candidatas = buscas_bot3 + keywords_internas_videos
-
     frequencia = Counter()
     termo_limpo_map = {}
 
@@ -251,20 +252,18 @@ def bot_4_inteligencia_cruzada(buscas_bot3, video_ids, jogo, categoria, mod_term
         if categoria == "android" and ("ppsspp" in c_lower or "psp " in c_lower):
             continue
 
-        # Algoritmo de Inteligência de Pontuação
         pontos = 1
         if cand in buscas_bot3 and cand in keywords_internas_videos:
-            pontos += 5  # Apareceu na busca do usuário E nas tags internas do topo!
+            pontos += 5
         if any(m in c_lower for m in mod_terms_titulos):
-            pontos += 4  # Contém nome de mod específico em alta (ex: Sky Ava / Sky Mod)
-        if any(k in c_lower for k in ['mod', 'apk', 'menu', 'mediafire', 'dinheiro', 'atualizado']):
+            pontos += 4
+        if any(k in c_lower for k in ['mod', 'apk', 'menu', 'mediafire', 'dinheiro', 'cheto', 'atualizado', 'sem key']):
             pontos += 2
 
         frequencia[c_lower] += pontos
         if c_lower not in termo_limpo_map:
             termo_limpo_map[c_lower] = c_clean
 
-    # Ordena por ranking de relevância cruzada
     termos_ordenados = sorted(frequencia.keys(), key=lambda x: frequencia[x], reverse=True)
 
     tags_finais = []
@@ -281,21 +280,46 @@ def bot_4_inteligencia_cruzada(buscas_bot3, video_ids, jogo, categoria, mod_term
 
     return ", ".join(tags_finais)
 
+def bot_5_engajamento_e_comunidade(jogo, versao, hashtags):
+    """
+    BOT 5: Monta a estrutura da descrição para o vídeo com CTAs de inscrição,
+    área de comunidade/suporte e aviso de isenção legal anti-strike.
+    """
+    v_str = f" {versao}" if versao else ""
+    desc = []
+    desc.append(f"🎮 {jogo.upper()}{v_str} SHOWCASE & GAMEPLAY ATUALIZADA!\n")
+    desc.append("🔔 Se inscreva no canal e ative o sininho para não perder as atualizações diárias!\n")
+    desc.append("💬 LINKS E SUPORTE DA COMUNIDADE:")
+    desc.append("👉 Grupo no Telegram: [INSERIR LINK DO TELEGRAM]")
+    desc.append("👉 Comunidade WhatsApp: [INSERIR LINK DO WHATSAPP]")
+    desc.append("👉 Download no Site Oficial: [INSERIR LINK DO BLOG]\n")
+    desc.append("⚠️ AVISO LEGAL E ISENÇÃO DE RESPONSABILIDADE / LEGAL DISCLAIMER:")
+    desc.append("Este vídeo possui caráter puramente educativo e demonstrativo de performance em jogos mobile/emulação. Todos os direitos e marcas registradas pertencem aos seus respetivos criadores e desenvolvedores.")
+    desc.append("This video is purely educational and for performance demonstration purposes. All rights belong to their respective owners.\n")
+    desc.append("🔎 HASHTAGS DO VÍDEO:")
+    
+    if hashtags:
+        desc.append(" ".join(hashtags[:20]))
+    else:
+        clean_game = re.sub(r'[^a-zA-Z0-9]', '', jogo)
+        desc.append(f"#{clean_game} #{clean_game}Mod #{clean_game}ModMenu #{clean_game}Gameplay #{clean_game}{ANO_ATUAL} #ModApk #Mediafire #AndroidGames")
+
+    return "\n".join(desc)
+
 def executar_gerador():
-    jogo = os.getenv("GAME_NAME", "Avakin Life").strip()
+    jogo = os.getenv("GAME_NAME", "8 Ball Pool").strip()
     versao = os.getenv("GAME_VERSION", "").strip()
     categoria = os.getenv("CATEGORY", "android").strip().lower()
     idioma_modo = os.getenv("LANGUAGE_MODE", "ambos").strip().lower()
 
     print("=" * 75)
-    print(f"🤖 ROBÔ SEO YOUTUBE - ENGINES QUAD-BOT (4 ROBÔS EM CONJUNTO): {jogo.upper()} {versao}")
+    print(f"🤖 ROBÔ SEO YOUTUBE - SISTEMA PENTA-BOT (5 ROBÔS): {jogo.upper()} {versao}")
     print(f"📂 Categoria: {categoria.upper()} | Idioma: {idioma_modo.upper()}")
     print("=" * 75)
 
-    # 1. BOT 1 - Varredura do Topo, Títulos e Nomes de Mods
+    # 1. BOT 1 - Topo, Títulos e Mods Virais
     titulos_reais, video_ids, mod_terms_titulos = bot_1_minerador_topo(jogo, categoria)
 
-    # Exibição dos 4 Títulos do Topo
     print("\n🔥 TOP 4 TÍTULOS MAIS POTENTES DO YOUTUBE (ANTI-STRIKE SEGURO):")
     print("-" * 75)
     if len(titulos_reais) >= 4:
@@ -312,27 +336,21 @@ def executar_gerador():
         for i, t in enumerate(fallback_titulos[:4], 1):
             print(f"{i}. 🚀 {t}")
 
-    # 2. BOT 2 - Raspa Massiva de Hashtags dos 10 Vídeos do Topo
-    hashtags_massivas = bot_2_hashtags_massivas_top10(video_ids, jogo)
+    # 2. BOT 2 - Extração Massiva de Hashtags
+    hashtags_massivas = bot_2_super_raspador_hashtags(video_ids, jogo)
 
-    print("\n📝 DESCRIÇÃO ENXUTA (AVISO LEGAL + HASHTAGS MASSIVAS DOS 10 VÍDEOS):")
-    print("-" * 75)
-    print("⚠️ AVISO LEGAL E ISENÇÃO DE RESPONSABILIDADE / LEGAL DISCLAIMER:")
-    print("Este vídeo possui caráter puramente educativo e demonstrativo de performance em jogos mobile/emulação. Todos os direitos e marcas registradas pertencem aos seus respetivos criadores e desenvolvedores.")
-    print("This video is purely educational and for performance demonstration purposes. All rights belong to their respective owners.")
-    print("-" * 50)
-    print("🔎 HASHTAGS EXTRAÍDAS DO YOUTUBE (100% LIMPAS E ORGANIZADAS):")
-    if hashtags_massivas:
-        print(" ".join(hashtags_massivas))
-    else:
-        clean_game = re.sub(r'[^a-zA-Z0-9]', '', jogo)
-        print(f"#{clean_game} #{clean_game}Mod #{clean_game}ModMenu #{clean_game}Gameplay #{clean_game}{ANO_ATUAL} #ModApk #Mediafire #AndroidGames")
-
-    # 3. BOT 3 & BOT 4 - Autocomplete Profundo + Inteligência Cruzada de Busca
+    # 3. BOT 3 & BOT 4 - Autocomplete Profundo e Cruzamento de Tags
     buscas_bot3 = bot_3_autocomplete_deep(jogo, categoria, idioma_modo, mod_terms_titulos)
     tags_caixa_final = bot_4_inteligencia_cruzada(buscas_bot3, video_ids, jogo, categoria, mod_terms_titulos)
 
-    print("\n📌 CAIXA DE TAGS DE BUSCA BRUTAS (SISTEMA QUAD-BOT - 100% REAIS E RELEVANTES):")
+    # 4. BOT 5 - Estruturação de Descrição, CTA e Comunidade
+    descricao_completa = bot_5_engajamento_e_comunidade(jogo, versao, hashtags_massivas)
+
+    print("\n📝 DESCRIÇÃO COMPLETA (BOT 5 - CTA, SUPORTE, DISCLAIMER E HASHTAGS):")
+    print("-" * 75)
+    print(descricao_completa)
+
+    print("\n📌 CAIXA DE TAGS DE BUSCA BRUTAS (SISTEMA PENTA-BOT - 100% REAIS):")
     print("-" * 75)
     print(tags_caixa_final)
     print("-" * 75)
