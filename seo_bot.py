@@ -18,10 +18,7 @@ COOKIES_YT = {
 }
 
 def limpar_titulo_anti_strike(titulo):
-    """
-    Substitui palavras de alto risco por termos seguros e otimizados para SEO.
-    Protege o canal contra diretrizes da comunidade sem perder o apelo do título.
-    """
+    """Filtra palavras de alto risco nos títulos mantendo o SEO forte."""
     substituicoes = {
         r'\bHACK\b': 'Showcase',
         r'\bHACKS\b': 'Gameplay',
@@ -32,34 +29,32 @@ def limpar_titulo_anti_strike(titulo):
         r'\bCRACK\b': 'Full Version',
         r'\bGENERATOR\b': 'Tool'
     }
-    
     titulo_limpo = titulo
     for padrao, sub in substituicoes.items():
         titulo_limpo = re.sub(padrao, sub, titulo_limpo, flags=re.IGNORECASE)
     return titulo_limpo
 
-def eh_codigo_css_ou_hex(tag):
-    """Filtra códigos de cores (hex) e termos do código-fonte do YouTube."""
-    tag_clean = tag.lower().replace("#", "").strip()
-    # Verifica se é código Hexadecimal (ex: 0f0f0f, fff, 606060)
-    if re.match(r'^[0-9a-f]{3}$', tag_clean) or re.match(r'^[0-9a-f]{6}$', tag_clean):
+def eh_termo_invalido_ou_hex(termo):
+    """Remove códigos hexadecimais de CSS e termos irrelevantes de UI do YouTube."""
+    t_clean = termo.lower().replace("#", "").strip()
+    if re.match(r'^[0-9a-f]{3}$', t_clean) or re.match(r'^[0-9a-f]{6}$', t_clean):
         return True
-    
     termos_invalidos = {'menu', 'masthead', 'country', 'yt', 'a11y', 'youtube', 'search', 'logo', 'zippy', 'player', 'header', 'button', 'icon'}
-    if tag_clean in termos_invalidos:
-        return True
-        
-    return False
+    return t_clean in termos_invalidos
 
-def raspar_youtube_real(termo_busca, categoria):
-    """Entra no YouTube real, extrai os títulos reais e hashtags legítimas das descrições."""
+def raspar_dados_top_videos(termo_busca, categoria):
+    """
+    Entra no YouTube, identifica os vídeos no topo do ranking e extrai:
+    1. Títulos dos vídeos.
+    2. Tags secretas (keywords do próprio vídeo).
+    3. Todas as Hashtags da descrição sem limite.
+    """
     query_encoded = urllib.parse.quote(termo_busca)
     url = f"https://www.youtube.com/results?search_query={query_encoded}"
     
     titulos_reais = []
     video_ids = []
-    hashtags_raspadas = []
-
+    
     try:
         response = requests.get(url, headers=HEADERS_DESKTOP, cookies=COOKIES_YT, timeout=10)
         if response.status_code == 200:
@@ -77,9 +72,7 @@ def raspar_youtube_real(termo_busca, categoria):
                             v_id = vr.get('videoId', '')
                             
                             if title and len(title) > 10 and title not in titulos_reais:
-                                # Aplica o Filtro Anti-Strike no título extraído
-                                titulo_seguro = limpar_titulo_anti_strike(title)
-                                titulos_reais.append(titulo_seguro)
+                                titulos_reais.append(limpar_titulo_anti_strike(title))
                                 if v_id:
                                     video_ids.append(v_id)
                             
@@ -88,41 +81,58 @@ def raspar_youtube_real(termo_busca, categoria):
                     if len(titulos_reais) >= 3:
                         break
     except Exception as e:
-        print(f"[-] Erro na varredura inicial: {e}")
+        print(f"[-] Erro na busca inicial: {e}")
 
-    # Entra nos 3 vídeos do topo e extrai apenas as hashtags reais da descrição
+    hashtags_desc = []
+    tags_brutas_videos = []
+
+    # Raspa as entranhas dos 3 vídeos no topo (Tags secretas do vídeo + Hashtags da descrição)
     for v_id in video_ids[:3]:
         try:
             v_url = f"https://www.youtube.com/watch?v={v_id}"
-            v_res = requests.get(v_url, headers=HEADERS_DESKTOP, cookies=COOKIES_YT, timeout=5)
+            v_res = requests.get(v_url, headers=HEADERS_DESKTOP, cookies=COOKIES_YT, timeout=8)
             if v_res.status_code == 200:
-                # Isola a descrição do vídeo para não pegar o CSS do site
-                desc_match = re.search(r'"shortDescription":"(.*?)","isCrawlable"', v_res.text)
-                texto_analise = desc_match.group(1) if desc_match else v_res.text
+                html = v_res.text
                 
-                # Separa hashtags grudadas (ex: #avakin#modapk -> #avakin #modapk)
-                texto_formatado = re.sub(r'#', ' #', texto_analise)
-                tags_brutas = re.findall(r'#([a-zA-Z0-9_]+)', texto_formatado)
+                # 1. Extrai as tags reais/secretas gravadas no código do vídeo ("keywords")
+                kw_match = re.search(r'"keywords":\s*\[(.*?)\]', html)
+                if kw_match:
+                    raw_kws = kw_match.group(1)
+                    kws = re.findall(r'"([^"]+)"', raw_kws)
+                    for k in kws:
+                        k_clean = k.strip()
+                        if len(k_clean) > 2 and not eh_termo_invalido_ou_hex(k_clean):
+                            if categoria == "android" and ("ppsspp" in k_clean.lower() or "psp" in k_clean.lower()):
+                                continue
+                            if k_clean.lower() not in [t.lower() for t in tags_brutas_videos]:
+                                tags_brutas_videos.append(k_clean)
+
+                # 2. Extrai TODAS as hashtags da descrição do vídeo
+                desc_match = re.search(r'"shortDescription":"(.*?)","isCrawlable"', html)
+                texto_desc = desc_match.group(1) if desc_match else html
                 
-                for tag in tags_brutas:
-                    if eh_codigo_css_ou_hex(tag):
+                # Desgruda hashtags coladas (#game#mod -> #game #mod)
+                texto_formatado = re.sub(r'#', ' #', texto_desc)
+                tags_encontradas = re.findall(r'#([a-zA-Z0-9_]+)', texto_formatado)
+                
+                for ht in tags_encontradas:
+                    if eh_termo_invalido_ou_hex(ht):
                         continue
-                        
-                    ht_clean = f"#{tag}"
-                    ht_lower = ht_clean.lower()
+                    ht_full = f"#{ht}"
+                    ht_lower = ht_full.lower()
                     
                     if categoria == "android" and ("ppsspp" in ht_lower or "psp" in ht_lower):
                         continue
                         
-                    if len(tag) > 2 and ht_clean not in hashtags_raspadas:
-                        hashtags_raspadas.append(ht_clean)
+                    if len(ht) > 2 and ht_lower not in [h.lower() for h in hashtags_desc]:
+                        hashtags_desc.append(ht_full)
         except Exception:
             pass
 
-    return titulos_reais, hashtags_raspadas
+    return titulos_reais, hashtags_desc, tags_brutas_videos
 
 def buscar_autocomplete_yt(termo, lang="pt", country="BR"):
-    """Puxa sugestões em tempo real do autocomplete do YouTube."""
+    """Puxa sugestões de pesquisas em tempo real do YouTube."""
     url = f"http://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q={urllib.parse.quote(termo)}&gl={country}&hl={lang}"
     try:
         r = requests.get(url, headers=HEADERS_DESKTOP, timeout=5)
@@ -132,58 +142,58 @@ def buscar_autocomplete_yt(termo, lang="pt", country="BR"):
         pass
     return []
 
-def extrair_tags_busca_reais(jogo, versao, categoria, idioma_modo):
-    """Gera caixa de tags com alta densidade (450 a 500 caracteres) através de varredura ampla."""
+def gerar_caixa_tags_brutas(jogo, versao, categoria, idioma_modo, tags_extraidas_videos):
+    """
+    Mineração Avançada de Tags de Busca:
+    Combina as tags reais extraídas diretamente dos vídeos tops do YouTube com pesquisas de alta frequência.
+    """
     termo_clean = re.sub(r'[^a-zA-Z0-9 ]', '', jogo).strip()
     v_clean = versao.strip()
     
-    # 16 Variações de busca reais para garantir preenchimento total das tags
+    # Pesquisas de alta intenção e volume no YouTube
     sementes = [
         f"{termo_clean}",
         f"{termo_clean} mod apk",
         f"{termo_clean} mod menu",
         f"{termo_clean} {ANO_ATUAL}",
-        f"{termo_clean} atualizado",
         f"{termo_clean} dinheiro infinito",
+        f"{termo_clean} atualizado",
+        f"{termo_clean} mediafire",
+        f"{termo_clean} download",
         f"{termo_clean} gameplay",
-        f"{termo_clean} download mediafire",
         f"{termo_clean} android",
-        f"{termo_clean} novo evento",
-        f"{termo_clean} apk mod",
-        f"{termo_clean} cheto",
-        f"{termo_clean} long line",
-        f"{termo_clean} xp booster",
     ]
-    
     if v_clean:
         sementes.insert(0, f"{termo_clean} {v_clean}")
-
     if categoria == "ppsspp":
-        sementes.extend([f"{termo_clean} ppsspp", f"{termo_clean} iso mediafire", f"{termo_clean} save data 100"])
+        sementes.extend([f"{termo_clean} ppsspp", f"{termo_clean} iso mediafire"])
 
-    tags_coletadas = []
+    tags_auto = []
     for s in sementes:
         if idioma_modo in ["ambos", "pt_br"]:
-            tags_coletadas.extend(buscar_autocomplete_yt(s, lang="pt", country="BR"))
+            tags_auto.extend(buscar_autocomplete_yt(s, lang="pt", country="BR"))
         if idioma_modo in ["ambos", "ingles"]:
-            tags_coletadas.extend(buscar_autocomplete_yt(s, lang="en", country="US"))
+            tags_auto.extend(buscar_autocomplete_yt(s, lang="en", country="US"))
 
-    # Remove duplicados mantendo a ordem dos termos mais buscados
+    # Prioriza as tags secretas extraídas dos vídeos em 1º lugar
+    todas_tags = tags_extraidas_videos + tags_auto
+
     seen = set()
-    tags_filtradas = []
-    for t in tags_coletadas:
-        t_lower = t.lower()
-        if t_lower in seen or len(t) <= 3:
+    tags_prioritarias = []
+    for t in todas_tags:
+        t_clean = re.sub(r'[^\w\s\-\/]', '', t).strip()
+        t_lower = t_clean.lower()
+        if t_lower in seen or len(t_clean) <= 2 or eh_termo_invalido_ou_hex(t_clean):
             continue
         if categoria == "android" and ("ppsspp" in t_lower or "psp" in t_lower):
             continue
         seen.add(t_lower)
-        tags_filtradas.append(t)
+        tags_prioritarias.append(t_clean)
 
-    # Constrói a caixa respeitando o limite rigoroso de 500 caracteres
+    # Preenche a caixa respeitando o limite de 500 caracteres
     tags_finais = []
     tamanho_total = 0
-    for t in tags_filtradas:
+    for t in tags_prioritarias:
         custo = len(t) + 2 if tags_finais else len(t)
         if tamanho_total + custo <= 500:
             tags_finais.append(t)
@@ -192,63 +202,6 @@ def extrair_tags_busca_reais(jogo, versao, categoria, idioma_modo):
             break
 
     return ", ".join(tags_finais)
-
-def formatar_hashtags_finais(hashtags_raspadas, jogo, categoria):
-    """Monta a lista com 20 hashtags organizadas."""
-    clean_game = re.sub(r'[^a-zA-Z0-9]', '', jogo)
-    
-    tags_finais = [h for h in hashtags_raspadas if h.startswith('#')]
-    
-    tags_base = [
-        f"#{clean_game}", f"#{clean_game}Mod", f"#{clean_game}ModApk", f"#{clean_game}{ANO_ATUAL}",
-        f"#{clean_game}Gameplay", f"#{clean_game}Update", f"#{clean_game}Download",
-        f"#{clean_game}Android", f"#{clean_game}ModMenu", "#AndroidGames", "#ModMenu",
-        "#ModApk", "#UnlimitedMoney", "#Gaming", "#MobileGaming", "#Mediafire"
-    ]
-    
-    if categoria == "ppsspp":
-        tags_base.extend([f"#{clean_game}PPSSPP", "#PPSSPP", "#PSP", "#PPSSPPISO"])
-
-    for tb in tags_base:
-        if tb not in tags_finais:
-            tags_finais.append(tb)
-
-    return " ".join(tags_finais[:20])
-
-def construir_descricao(jogo, versao, categoria, hashtags_str):
-    site_url = "https://k-404modapk.blogspot.com"
-    v_str = f" {versao}" if versao else ""
-    
-    desc = f"""🔥 PROCURANDO POR {jogo.upper()}{v_str}? VOCÊ ESTÁ NO LUGAR CERTO! 
-🚀 LOOKING FOR {jogo.upper()}{v_str}? YOU ARE IN THE RIGHT PLACE!
-
---------------------------------------------------
-🎮 BEM-VINDO(A) AO CANAL! / WELCOME TO THE CHANNEL!
-Aperte o play e confira a apresentação mais completa e detalhada de {jogo.upper()}{v_str}! Gráficos incríveis, alta performance e recursos exclusivos rodando com 100% de fluidez.
-
-Press play and check out the most complete and detailed gameplay of {jogo.upper()}{v_str}! Incredible graphics, top performance, and exclusive features running super smooth.
-
-🌐 DOWNLOAD DIRETO & INFORMAÇÕES NO SITE OFICIAL / OFFICIAL SITE:
-👉 {site_url}
-
-✨ DESTAQUES DO CONTEÚDO / CONTENT HIGHLIGHTS:
-• Otimização máxima de FPS e desempenho.
-• Análise completa dos novos recursos e novidades.
-• Compatibilidade total atualizada.
-• Top FPS optimization and smooth performance.
-• Full analysis of new features and updates.
-
---------------------------------------------------
-🔎 HASHTAGS RELACIONADAS DO VÍDEO (EXTRAÍDAS DO YOUTUBE):
-{hashtags_str}
-
---------------------------------------------------
-⚠️ AVISO LEGAL E ISENÇÃO DE RESPONSABILIDADE / LEGAL DISCLAIMER:
-Este vídeo possui caráter puramente educativo e demonstrativo de performance em jogos mobile/emulação. Todos os direitos e marcas registradas pertencem aos seus respetivos criadores e desenvolvedores.
-This video is purely educational and for performance demonstration purposes. All rights belong to their respective owners.
---------------------------------------------------
-"""
-    return desc
 
 def executar_gerador():
     jogo = os.getenv("GAME_NAME", "8 Ball Pool").strip()
@@ -259,13 +212,14 @@ def executar_gerador():
     termo_pesquisa = f"{jogo} mod apk" if categoria == "android" else f"{jogo} ppsspp"
 
     print("=" * 75)
-    print(f"🤖 ROBÔ SEO INTELIGENTE YOUTUBE REAL: {jogo.upper()} {versao}")
+    print(f"🤖 ROBÔ SEO ULTRA AVANÇADO YOUTUBE: {jogo.upper()} {versao}")
     print(f"📂 Categoria: {categoria.upper()} | Idioma: {idioma_modo.upper()}")
     print("=" * 75)
 
-    # 1. Raspagem do YouTube com Filtro Anti-Strike
-    titulos_reais, hashtags_raspadas = raspar_youtube_real(termo_pesquisa, categoria)
+    # Extração profunda dos vídeos top do YouTube
+    titulos_reais, hashtags_desc, tags_brutas_videos = raspar_dados_top_videos(termo_pesquisa, categoria)
 
+    # 1. Títulos Reais
     print("\n🔥 TOP 3 TÍTULOS REAIS DO YOUTUBE (COM FILTRO ANTI-STRIKE SEGURO):")
     print("-" * 75)
     if titulos_reais:
@@ -277,19 +231,27 @@ def executar_gerador():
         print(f"2. 🔥 {jogo.upper()}{v_str} NOVO MOD APK MEDIAFIRE")
         print(f"3. ⚡ {jogo.upper()}{v_str} GAMEPLAY & TUTORIAL COMPLETO")
 
-    # 2. Descrição e Hashtags
-    hashtags_str = formatar_hashtags_finais(hashtags_raspadas, jogo, categoria)
-    print("\n📝 DESCRIÇÃO COM HASHTAGS REAIS DO JOGO:")
+    # 2. Descrição Limpa (Apenas Aviso Legal + Hashtags Extraídas)
+    print("\n📝 DESCRIÇÃO ENXUTA (AVISO LEGAL + HASHTAGS EXTRAÍDAS):")
     print("-" * 75)
-    print(construir_descricao(jogo, versao, categoria, hashtags_str))
+    print("⚠️ AVISO LEGAL E ISENÇÃO DE RESPONSABILIDADE / LEGAL DISCLAIMER:")
+    print("Este vídeo possui caráter puramente educativo e demonstrativo de performance em jogos mobile/emulação. Todos os direitos e marcas registradas pertencem aos seus respetivos criadores e desenvolvedores.")
+    print("This video is purely educational and for performance demonstration purposes. All rights belong to their respective owners.")
+    print("-" * 50)
+    print("🔎 HASHTAGS EXTRAÍDAS DO YOUTUBE:")
+    if hashtags_desc:
+        print(" ".join(hashtags_desc))
+    else:
+        clean_game = re.sub(r'[^a-zA-Z0-9]', '', jogo)
+        print(f"#{clean_game} #{clean_game}Mod #{clean_game}Gameplay #{clean_game}{ANO_ATUAL} #AndroidGames #ModApk")
 
-    # 3. Caixa de Tags de Busca
-    tags_busca_caixa = extrair_tags_busca_reais(jogo, versao, categoria, idioma_modo)
-    print("\n📌 CAIXA DE TAGS DE BUSCA REAIS (ATÉ 500 CARACTERES):")
+    # 3. Caixa de Tags de Busca Brutas (Até 500 caracteres)
+    tags_caixa = gerar_caixa_tags_brutas(jogo, versao, categoria, idioma_modo, tags_brutas_videos)
+    print("\n📌 CAIXA DE TAGS DE BUSCA BRUTAS (ATÉ 500 CARACTERES):")
     print("-" * 75)
-    print(tags_busca_caixa)
+    print(tags_caixa)
     print("-" * 75)
-    print(f"📊 Total de caracteres utilizados: {len(tags_busca_caixa)}/500")
+    print(f"📊 Total de caracteres utilizados: {len(tags_caixa)}/500")
 
 if __name__ == "__main__":
     executar_gerador()
