@@ -1,17 +1,14 @@
 import os
 import requests
 import datetime
+import re
 
-# Pega o ano atual automaticamente (ex: 2026)
 ANO_ATUAL = datetime.datetime.now().year
 
-def buscar_autocomplete_yt(termo, lang="pt"):
-    """Consulta o autocomplete oficial do YouTube em tempo real."""
-    gl = "BR" if lang == "pt" else "US"
-    hl = "pt" if lang == "pt" else "en"
-    url = f"http://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q={termo}&gl={gl}&hl={hl}"
+def buscar_autocomplete_yt(termo, lang="pt", country="BR"):
+    """Consulta a API do Autocomplete do YouTube em tempo real."""
+    url = f"http://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q={termo}&gl={country}&hl={lang}"
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-    
     try:
         r = requests.get(url, headers=headers, timeout=5)
         if r.status_code == 200:
@@ -20,101 +17,139 @@ def buscar_autocomplete_yt(termo, lang="pt"):
         pass
     return []
 
-def gerar_sementes_busca(jogo, versao, categoria):
-    """Gera variações estratégicas de pesquisa para puxar as tags mais fortes."""
+def gerar_sementes_busca(jogo, versao, categoria, idioma_modo):
+    """Gera combinações profundas de busca incluindo Cheto, Auto Play, Mod Menu, etc."""
     sementes = []
     
-    if categoria == "android":
-        # Sementes em Português
-        sementes.extend([
-            f"{jogo} mod apk",
-            f"{jogo} mod menu",
-            f"{jogo} dinheiro infinito",
-            f"{jogo} {ANO_ATUAL}",
-            f"{jogo} mod apk {ANO_ATUAL}",
-            f"{jogo} atualizado"
-        ])
-        if versao:
-            sementes.append(f"{jogo} {versao}")
-            sementes.append(f"{jogo} {versao} mod apk")
-            
-        # Sementes em Inglês (Para atrair tráfego internacional)
-        sementes.extend([
-            f"{jogo} unlimited money",
-            f"{jogo} mod apk {ANO_ATUAL} mediafire",
-            f"{jogo} mod menu {ANO_ATUAL}"
-        ])
-        
-    elif categoria == "ppsspp":
-        # Sementes específicas para PPSSPP/PSP
-        sementes.extend([
-            f"{jogo} ppsspp",
-            f"{jogo} ppsspp pt br",
-            f"{jogo} iso ppsspp",
-            f"{jogo} ppsspp download",
-            f"{jogo} ppsspp {ANO_ATUAL}",
-            f"{jogo} save data ppsspp",
-            f"{jogo} texturas hd ppsspp",
-            f"{jogo} ppsspp mediafire"
-        ])
-        if versao:
-            sementes.append(f"{jogo} {versao} ppsspp")
-            
-    return sementes
+    # Termos brutosa Android em PT e EN
+    termos_android_pt = [
+        "mod apk", "mod menu", "dinheiro infinito", "tudo liberado", 
+        "atualizado", "cheto", "auto play", "linha infinita", "mediafire", "apk mod"
+    ]
+    termos_android_en = [
+        "mod apk", "mod menu", "unlimited money", "cheto", "auto play", 
+        "long line", "aim tool", "latest version", "unlocked", "gameplay mod"
+    ]
+    
+    # Termos brutosa PPSSPP em PT e EN
+    termos_psp_pt = [
+        "ppsspp", "iso ppsspp", "ppsspp pt br", "save data", 
+        "texturas hd", "dublado", "mediafire iso", "ppsspp mod"
+    ]
+    termos_psp_en = [
+        "ppsspp iso", "ppsspp gameplay", "best settings ppsspp", 
+        "save data 100", "hd texture ppsspp", "psp iso download"
+    ]
 
-def construir_descricao(jogo, versao, categoria, tags_principais):
-    site_url = "https://k-404modapk.blogspot.com"
-    versao_str = f"({versao})" if versao else f"({ANO_ATUAL})"
+    termo_base = f"{jogo} {versao}".strip() if versao else jogo
+
+    if categoria == "android":
+        if idioma_modo in ["ambos", "pt_br"]:
+            for t in termos_android_pt:
+                sementes.append(f"{termo_base} {t}")
+                if versao: sementes.append(f"{jogo} {t} {versao}")
+        if idioma_modo in ["ambos", "ingles"]:
+            for t in termos_android_en:
+                sementes.append(f"{termo_base} {t}")
+                if versao: sementes.append(f"{jogo} {t} {versao}")
+    else: # PPSSPP
+        if idioma_modo in ["ambos", "pt_br"]:
+            for t in termos_psp_pt:
+                sementes.append(f"{termo_base} {t}")
+        if idioma_modo in ["ambos", "ingles"]:
+            for t in termos_psp_en:
+                sementes.append(f"{termo_base} {t}")
+
+    # Adiciona buscas com ano atual
+    sementes.append(f"{jogo} {ANO_ATUAL}")
+    if versao:
+        sementes.append(f"{jogo} {versao}")
+
+    return list(dict.fromkeys(sementes))
+
+def gerar_titulos_seguros(jogo, versao, categoria):
+    """Gera títulos de altíssimo CTR eliminando palavras gatilho de strike."""
+    v_str = f" {versao}" if versao else ""
     
     if categoria == "android":
-        tipo_conteudo = "Mod Menu / Recursos Desbloqueados"
-    else:
-        tipo_conteudo = "ISO Emulação / Tradução PT-BR / Save Data"
+        return [
+            f"🚀 {jogo.upper()}{v_str} MOD MENU / FULL SHOWCASE & GAMEPLAY ATUALIZADO!",
+            f"🔥 {jogo.upper()}{v_str} - NOVAS FUNÇÕES & RECURSOS ATIVADOS (ANDROID)",
+            f"⚡ {jogo.upper()}{v_str} MOD APK (TUDO LIBERADO / UNLIMITED) - ANÁLISE COMPLETA",
+            f"🎯 {jogo.upper()}{v_str} BEST MOD MENU SHOWCASE + CONFIGURAÇÃO SEGURA"
+        ]
+    else: # PPSSPP
+        return [
+            f"⚔️ {jogo.upper()}{v_str} PPSSPP PT-BR (ISO + SAVE DATA 100%) ATUALIZADO!",
+            f"🎮 {jogo.upper()}{v_str} PPSSPP ISO - BEST GRAPHICS & PERFORMANCE SETTINGS",
+            f"🔥 {jogo.upper()}{v_str} PSP (TEXTURAS HD / DUBLADO) - SHOWCASE GAMEPLAY",
+            f"⚡ {jogo.upper()}{v_str} PPSSPP - COMO CONFIGURAR SEM LAG (ULTRA GRAPHICS)"
+        ]
 
-    descricao = f"""📥 DOWNLOAD E MAIS DETALHES NO SITE OFICIAL:
+def construir_descricao_elegante(jogo, versao, categoria, tags_top):
+    site_url = "https://k-404modapk.blogspot.com"
+    v_str = f" {versao}" if versao else ""
+    jogo_clean = re.sub(r'[^a-zA-Z0-9]', '', jogo)
+    
+    tag1 = tags_top[0] if len(tags_top) > 0 else f"{jogo} mod apk"
+    tag2 = tags_top[1] if len(tags_top) > 1 else f"{jogo} mod menu"
+    tag3 = tags_top[2] if len(tags_top) > 2 else f"{jogo} atualizado"
+    tag4 = tags_top[3] if len(tags_top) > 3 else f"{jogo} gameplay"
+
+    desc = f"""🔥 Procurando por {jogo.upper()}{v_str} MOD APK / MOD MENU? Você está no lugar certo!
+
+Seja bem-vindo(a) ao canal! No vídeo de hoje trazemos uma análise detalhada e apresentação completa das melhores configurações e novos recursos do {jogo.upper()}{v_str}.
+
+🌐 DOWNLOAD E MAIS DETALHES NO SITE OFICIAL:
 👉 {site_url}
 
-🎮 SOBRE O VÍDEO - {jogo.upper()} {versao_str}:
-Confira a apresentação completa e gameplay de {jogo} {versao_str}. 
-Análise de performance, instalação e novidades do {tipo_conteudo}.
+🎮 DETALHES DO CONTEÚDO EXIBIDO:
+• Análise de desempenho e otimização gráfica.
+• Exibição completa dos novos recursos e menus.
+• Guia de configuração para melhor fluidez no Android/PPSSPP.
 
-📌 TÓPICOS PESQUISADOS E ABORDADOS:
-• {tags_principais[0] if len(tags_principais) > 0 else jogo}
-• {tags_principais[1] if len(tags_principais) > 1 else jogo + ' atualizado'}
-• {tags_principais[2] if len(tags_principais) > 2 else jogo + ' download'}
-• {tags_principais[3] if len(tags_principais) > 3 else jogo + ' gameplay'}
+📌 TÓPICOS MAIS PESQUISADOS EM DESTAQUE:
+✔ {tag1}
+✔ {tag2}
+✔ {tag3}
+✔ {tag4}
 
 --------------------------------------------------
-⚠️ AVISO LEGAL DE DIREITOS E ISENÇÃO DE RESPONSABILIDADE:
-Este vídeo possui caráter puramente demonstrativo e educativo, focado em emulação, testes de desempenho e tutoriais de otimização. Todos os direitos sobre o jogo e marcas registradas pertencem aos seus respetivos desenvolvedores e proprietários.
+🔎 HASHTAGS PARA ENCONTRAR O VÍDEO:
+#{jogo_clean} #{jogo_clean}Mod #{jogo_clean}ModApk #{jogo_clean}PPSSPP #AndroidGames #ModMenu #{ANO_ATUAL}
+
+--------------------------------------------------
+⚠️ AVISO LEGAL E ISENÇÃO DE RESPONSABILIDADE:
+Este vídeo possui caráter exclusivamente educativo e demonstrativo de performance em jogos mobile/emulação. Todos os direitos e marcas registradas pertencem aos seus respetivos criadores e desenvolvedores oficiais.
 --------------------------------------------------
 """
-    return descricao
+    return desc
 
 def executar_gerador():
     jogo = os.getenv("GAME_NAME", "FR Legends").strip()
     versao = os.getenv("GAME_VERSION", "").strip()
     categoria = os.getenv("CATEGORY", "android").strip().lower()
+    idioma_modo = os.getenv("LANGUAGE_MODE", "ambos").strip().lower()
 
-    print("=" * 70)
-    print(f"🔥 BUSCANDO AS TAGS MAIS FORTES DA SEMANA PARA: {jogo.upper()}")
-    print(f"📂 Categoria: {categoria.upper()} | Versão: {versao if versao else 'Mais recente'}")
-    print("=" * 70)
+    print("=" * 75)
+    print(f"🤖 ROBÔ SEO INTELIGENTE: {jogo.upper()} {versao}")
+    print(f"📂 Categoria: {categoria.upper()} | Idioma: {idioma_modo.upper()}")
+    print("=" * 75)
 
-    sementes = gerar_sementes_busca(jogo, versao, categoria)
+    sementes = gerar_sementes_busca(jogo, versao, categoria, idioma_modo)
     
     brutas_tags = []
     for semente in sementes:
-        brutas_tags.extend(buscar_autocomplete_yt(semente, lang="pt"))
-        brutas_tags.extend(buscar_autocomplete_yt(semente, lang="en"))
+        if idioma_modo in ["ambos", "pt_br"]:
+            brutas_tags.extend(buscar_autocomplete_yt(semente, lang="pt", country="BR"))
+        if idioma_modo in ["ambos", "ingles"]:
+            brutas_tags.extend(buscar_autocomplete_yt(semente, lang="en", country="US"))
 
-    # Remover duplicadas mantendo a ordem de relevância
+    # Remover duplicadas mantendo ordem
     tags_unicas = list(dict.fromkeys(brutas_tags))
-
-    # Filtrar tags inúteis ou curtas demais
     tags_filtradas = [t for t in tags_unicas if len(t) > 3]
 
-    # Preencher a caixa de 500 caracteres
+    # Preencher limite de 500 caracteres do YouTube Studio
     tags_finais = []
     tamanho_total = 0
     for t in tags_filtradas:
@@ -126,32 +161,21 @@ def executar_gerador():
 
     caixa_tags = ", ".join(tags_finais)
 
-    # 1. Sugestões de Títulos Anti-Strike (Alto CTR)
-    print("\n🚀 TÍTULOS DE ALTO CTR E PROTEGIDOS CONTRA STRIKE:")
-    print("-" * 70)
-    if categoria == "android":
-        ver_tag = versao if versao else f"v{ANO_ATUAL}"
-        print(f"1. 🔥 {jogo.upper()} {ver_tag} MOD APK (DINHEIRO INFINITO / MOD MENU) ATUALIZADO!")
-        print(f"2. COMO BAIXAR E INSTALAR {jogo.upper()} {ver_tag} COM TUDO DESBLOQUEADO")
-        print(f"3. {jogo.upper()} MOD MENU {ver_tag} - TUDO LIBERADO (DOWNLOAD DIRETO)")
-        print(f"4. 😱 SAIU! {jogo.upper()} {ver_tag} MOD APK ATUALIZADO + GAMEPLAY")
-    else:
-        print(f"1. ⚔️ {jogo.upper()} PPSSPP PT-BR (ISO + SAVE DATA) ATUALIZADO!")
-        print(f"2. COMO BAIXAR E JOGAR {jogo.upper()} NO PPSSPP (TEXTURAS HD / DUBLADO)")
-        print(f"3. {jogo.upper()} PPSSPP ISO MEDIAFIRE - TUDO DESBLOQUEADO")
-        print(f"4. 🎮 {jogo.upper()} PSP PT-BR - MELHOR CONFIGURAÇÃO SEM LAG")
+    # Output no Console
+    print("\n🚀 TÍTULOS PROTEGIDOS E DE ALTO CTR (SEM RISCO DE BAN/STRIKE):")
+    print("-" * 75)
+    titulos = gerar_titulos_seguros(jogo, versao, categoria)
+    for i, t in enumerate(titulos, 1):
+        print(f"{i}. {t}")
 
-    # 2. Descrição Pronta
-    print("\n📝 DESCRIÇÃO COMPLETA (COPIE E COLE NA DESCRIÇÃO DO VÍDEO):")
-    print("-" * 70)
-    desc = construir_descricao(jogo, versao, categoria, tags_filtradas)
-    print(desc)
+    print("\n📝 DESCRIÇÃO COMPLETA E FORMATAÇÃO PREMIUM (COPIE E COLE):")
+    print("-" * 75)
+    print(construir_descricao_elegante(jogo, versao, categoria, tags_filtradas))
 
-    # 3. Caixa de Tags para o YouTube Studio
-    print("\n📌 CAIXA DE TAGS MAIS PESQUISADAS (COPIE E COLE NO CAMPO DE TAGS):")
-    print("-" * 70)
+    print("\n📌 CAIXA DE TAGS MAIS BRUTAS DO MOMENTO (500 CARACTERES):")
+    print("-" * 75)
     print(caixa_tags)
-    print("-" * 70)
+    print("-" * 75)
     print(f"📊 Total de caracteres utilizados: {len(caixa_tags)}/500")
 
 if __name__ == "__main__":
