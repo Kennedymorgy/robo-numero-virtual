@@ -1,14 +1,14 @@
-name: Gerador SEO YouTube Multi-Canal
+name: Gerador SEO YouTube Inteligente
 
 on:
   workflow_dispatch:
     inputs:
       game_name:
-        description: 'Nome do Jogo (ex: FR Legends, God of War, Avakin Life)'
+        description: 'Nome do Jogo (ex: FR Legends, 8 Ball Pool, Dragon Ball Z)'
         required: true
         default: 'FR Legends'
       game_version:
-        description: 'Versão/Detalhe (ex: v0.4.8, PT-BR ISO, v5.4.0) [Opcional]'
+        description: 'Versão/Detalhes [OPCIONAL] (ex: v0.4.8, v56.30.1, PT-BR)'
         required: false
         default: ''
       category:
@@ -19,6 +19,15 @@ on:
           - 'android'
           - 'ppsspp'
         default: 'android'
+      language_mode:
+        description: 'Idioma das Tags/Buscas'
+        required: true
+        type: choice
+        options:
+          - 'ambos'
+          - 'pt_br'
+          - 'ingles'
+        default: 'ambos'
 
 jobs:
   gerar-seo:
@@ -40,4 +49,5 @@ jobs:
           GAME_NAME: ${{ github.event.inputs.game_name }}
           GAME_VERSION: ${{ github.event.inputs.game_version }}
           CATEGORY: ${{ github.event.inputs.category }}
+          LANGUAGE_MODE: ${{ github.event.inputs.language_mode }}
         run: python seo_bot.py
