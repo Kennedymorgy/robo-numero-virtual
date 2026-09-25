@@ -57,7 +57,6 @@ async def configurar_contexto_anti_cloudflare(browser):
         timezone_id="Europe/Lisbon",
         device_scale_factor=1,
         has_touch=False,
-        js_enabled=True,
         extra_http_headers={
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
             "Accept-Language": "pt-PT,pt;q=0.9,en-US;q=0.8,en;q=0.7",
@@ -73,7 +72,7 @@ async def configurar_contexto_anti_cloudflare(browser):
         }
     )
     
-    # Injeta scripts para ocultar automação do navegador (Playwright fingerprint evasion)
+    # Injeta scripts para ocultar automação do navegador
     await context.add_init_script("""
         Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         window.navigator.chrome = { runtime: {} };
@@ -84,11 +83,11 @@ async def configurar_contexto_anti_cloudflare(browser):
 async def raspar_quackr(page, base_url):
     """Varre o Quackr PT lidando com paginação e carregamento dinâmico."""
     numeros = []
-    for pagina in range(1, 4):  # Varre até 3 páginas
+    for pagina in range(1, 4):
         url_pag = f"{base_url}?page={pagina}" if pagina > 1 else base_url
         try:
             await page.goto(url_pag, timeout=30000, wait_until="domcontentloaded")
-            await page.mouse.move(100, 200) # Simula movimento humano do mouse
+            await page.mouse.move(100, 200)
             await page.wait_for_timeout(2500)
             
             links = await page.locator("a").all()
@@ -209,7 +208,7 @@ def exibir_relatorio(aprovados):
         print("\n❌ NENHUM NÚMERO DISPONÍVEL ENCONTRADO NESTA VARREDURA.")
 
 async def main():
-    print("\n⚡ [BOT YOUTUBE BLINDADO v7] Iniciando varredura com bypass Anti-Cloudflare...")
+    print("\n⚡ [BOT YOUTUBE BLINDADO v8] Iniciando varredura com bypass Anti-Cloudflare...")
     
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
