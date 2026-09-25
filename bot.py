@@ -58,7 +58,6 @@ async def configurar_contexto_stealth(browser):
         }
     )
     
-    # Adiciona cookies genéricos de sessão para parecer uma navegação recorrente
     await context.add_cookies([
         {
             "name": "session_pref",
@@ -119,7 +118,6 @@ async def analisar_historico_numero(item, browser, semaphoro):
             corpo_texto = await page.inner_text("body")
             texto_lower = corpo_texto.lower()
             
-            # Análise de padrões de códigos e menções do Google/YouTube
             mencoes = texto_lower.count('youtube') + texto_lower.count('google')
             codigos_g = len(re.findall(r'\bg-\d{5,6}\b', texto_lower))
             
@@ -127,7 +125,7 @@ async def analisar_historico_numero(item, browser, semaphoro):
             item['usos_google'] = total_usos
             
         except Exception:
-            item['usos_google'] = 999  # Se falhar, marca para descarte por segurança
+            item['usos_google'] = 999
         finally:
             await context.close()
             
@@ -157,14 +155,12 @@ async def main():
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         
-        # Limita até 3 robôs (operações simultâneas)
         semaphoro = asyncio.Semaphore(3)
         
         print("\n🌐 Fase 1: Coletando números em paralelo nos sites...")
-        tasks_ fontes = [processar_fonte(f, browser, semaphoro) for f in FONTES_SMS]
+        tasks_fontes = [processar_fonte(f, browser, semaphoro) for f in FONTES_SMS]
         resultados = await asyncio.gather(*tasks_fontes)
         
-        # Agrupa todos os números encontrados sem duplicatas
         todos_candidatos = []
         for lista in resultados:
             for item in lista:
@@ -176,10 +172,8 @@ async def main():
         tasks_analise = [analisar_historico_numero(c, browser, semaphoro) for c in todos_candidatos]
         candidatos_analisados = await asyncio.gather(*tasks_analise)
         
-        # Filtra números com 0 ou 1 uso (respeitando o limite de 2 por ano do Google)
         aprovados = [item for item in candidatos_analisados if item['usos_google'] <= 1]
         
-        # Ordena colocando os virgens (0 usos) em primeiro lugar
         aprovados.sort(key=lambda x: x['usos_google'])
         
         exibir_relatorio(aprovados)
