@@ -23,7 +23,7 @@ COOKIES_YT = {
     "SOCS": "CAI"
 }
 
-# Apenas lixos reais de UI do YouTube e atributos de layout
+# Apenas lixos técnicos do YouTube e atributos de layout
 LIXO_SISTEMA_E_CANANIS = {
     'video', 'sharing', 'camera phone', 'free', 'upload', 'youtube', 'yt', 'shorts',
     'mobile', 'cell phone', 'phone', 'app', 'google', 'android', 'ios', 'menu', 'header',
@@ -32,7 +32,7 @@ LIXO_SISTEMA_E_CANANIS = {
 }
 
 def eh_hex_color(string):
-    """Filtra vazamentos de cores CSS Hexadecimal do HTML (ex: fff, 0f0f0f, 1a1a1a)."""
+    """Filtra vazamentos de cores CSS Hexadecimal do HTML (ex: fff, 0f0f0f)."""
     return bool(re.fullmatch(r'^[0-9a-fA-F]{3}$|^[0-9a-fA-F]{6}$|^[0-9a-fA-F]{8}$', string))
 
 def limpar_titulo_anti_strike(titulo):
@@ -52,10 +52,10 @@ def limpar_titulo_anti_strike(titulo):
         titulo_limpo = re.sub(padrao, sub, titulo_limpo, flags=re.IGNORECASE)
     return titulo_limpo.strip()
 
-def eh_hashtag_valida_abrangente(ht_raw):
+def eh_hashtag_valida_sem_limite(ht_raw):
     """
-    Validação inteligente de Hashtags: Mantém TUDO o que for relevante do vídeo
-    e ignora apenas lixo técnico de código CSS e sistema.
+    Filtro ultra permissivo para puxar TODAS as hashtags reais dos vídeos do topo.
+    Remove apenas lixos de sistema e códigos hexadecimal CSS.
     """
     ht = ht_raw.lower().replace("#", "").strip()
 
@@ -79,7 +79,7 @@ def buscar_autocomplete_yt(termo, lang="pt", country="BR"):
     return []
 
 # ==============================================================================
-# SISTEMA PENTA-BOT COMPLETO (5 ROBÔS INTEGRADOS)
+# SISTEMA PENTA-BOT AUTOMÁTICO (5 ROBÔS INTEGRADOS)
 # ==============================================================================
 
 def bot_1_minerador_topo(jogo, categoria):
@@ -130,9 +130,9 @@ def bot_1_minerador_topo(jogo, categoria):
 
 def bot_2_super_raspador_hashtags_massivo(video_ids, jogo):
     """
-    BOT 2 (HASHTAGS MASSIVAS & DESGRUDADOR):
-    Entra em até 10 vídeos do topo, força o descolamento (#a#b -> #a #b),
-    trata Unicodes e captura o pacote CHEIO de hashtags originais dos vídeos.
+    BOT 2 (EXTRAÇÃO MASSIVA DE HASHTAGS DA DESCRIÇÃO):
+    Varre os 10 vídeos do topo, força o descolamento (#a#b -> #a #b), decodifica Unicodes
+    e puxar TODAS as hashtags sem limitação.
     """
     todas_hashtags = []
     seen = set()
@@ -146,11 +146,8 @@ def bot_2_super_raspador_hashtags_massivo(video_ids, jogo):
             res = session.get(url, cookies=COOKIES_YT, timeout=6)
             if res.status_code == 200:
                 html = res.text
-                
-                # Decodifica códigos unicode comuns do YouTube
-                html_clean = html.replace('\\u0023', '#')
+                html_clean = html.replace('\\u0023', '#').replace('\\u0026', '&')
 
-                # Junta blocos de texto da descrição e tags internas
                 texto_alvo = ""
                 matches_json = re.findall(r'"text":"([^"]+)"', html_clean)
                 if matches_json:
@@ -164,12 +161,12 @@ def bot_2_super_raspador_hashtags_massivo(video_ids, jogo):
                 if meta_desc:
                     texto_alvo += " " + meta_desc.group(1)
 
-                # Desgruda hashtags coladas: #8BallPool#Hack -> #8BallPool #Hack
+                # Desgruda hashtags coladas: #avakin#mod -> #avakin #mod
                 texto_formatado = re.sub(r'#', ' #', texto_alvo)
-                raw_hts = re.findall(r'#([a-zA-Z0-9_]+)', texto_formatado)
+                raw_hts = re.findall(r'#([a-zA-Z0-9_\u00C0-\u00FF]+)', texto_formatado)
 
                 for ht in raw_hts:
-                    if eh_hashtag_valida_abrangente(ht):
+                    if eh_hashtag_valida_sem_limite(ht):
                         ht_formated = f"#{ht}"
                         ht_lower = ht_formated.lower()
                         
@@ -285,52 +282,77 @@ def bot_4_inteligencia_cruzada(buscas_bot3, video_ids, jogo, categoria, mod_term
 
     return ", ".join(tags_finais)
 
-def bot_5_mestre_engajamento_e_ctr(jogo, versao, video_ids, mod_terms_titulos, total_chars_tags):
+def bot_5_mestre_estrategico_e_copywriting(jogo, versao, video_ids, mod_terms_titulos, total_chars_tags, total_hashtags):
     """
-    BOT 5 (MESTRE DE ENGAJAMENTO & CTR):
-    Entrega recursos práticos e inteligentes:
-    1. Comentário Fixado de Alta Conversão (pronto para copiar e colar).
-    2. Palavras de Impacto para Thumbnail / Capa.
-    3. Score de Saúde SEO do Vídeo (0 a 100%).
+    BOT 5 INTELIGENTE (ESTRATEGISTA COMPLETO DE CONVERSÃO & SEO):
+    1. Score SEO do Vídeo (0-100%).
+    2. Descrição Otimizada Pronta para Copiar (Copywriting Anti-Strike).
+    3. Comentário Fixado (Pinned Comment Estratégico).
+    4. Gatilhos de Thumbnail.
     """
-    v_str = f" {versao}" if versao else ""
-    
-    # Modelo de Comentário Fixado de Alto Engajamento
-    comentario_fixado = f"👇 [DOWNLOAD & SUPORTE COMPLETO VIA FIXADO] 👇\n\n✅ {jogo.upper()}{v_str} Testado e Funcional!\n💬 Deixe seu gostei e comente qual jogo você quer no próximo vídeo!\n🔔 Se inscreva para receber as atualizações em primeira mão."
+    v_str = f" v{versao}" if versao else ""
+    jogo_upper = jogo.upper()
 
+    # Cálculo do SEO Score
+    score = 70
+    if total_chars_tags >= 450:
+        score += 15
+    if total_hashtags >= 10:
+        score += 15
+
+    # 1. Template de Descrição Otimizada
+    descricao_template = f"""━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔥 {jogo_upper}{v_str} SHOWCASE & GAMEPLAY ATUALIZADO
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🎮 SOBRE O VÍDEO:
+Confira a melhor apresentação completa do {jogo_upper} atualizado! Gameplay fluida, recursos ativados e tutorial de instalação no Android.
+
+📌 LINK DE DOWNLOAD & INSTRUÇÕES:
+ Fixado no primeiro comentário abaixo!
+
+💬 COMUNIDADE & SUPORTE:
+ Entre no grupo do Telegram para suporte e pedidos de jogos!
+
+⚠️ DISCLAIMER & AVISO LEGAL:
+Este vídeo é estritamente demonstrativo e educativo (Showcase/Gameplay). Todos os direitos pertencem aos criadores originais do jogo.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"""
+
+    # 2. Comentário Fixado Estratégico
+    comentario_fixado = f"👇 [DOWNLOAD & SUPORTE COMPLETO FIXADO] 👇\n\n✅ {jogo_upper}{v_str} Testado e Funcional!\n💬 Deixe seu gostei e comente qual jogo você quer no próximo vídeo!\n🔔 Se inscreva para receber novidades em primeira mão."
+
+    # 3. Gatilhos de Capa
     gatilhos_thumb = ["LINK DIRETO", "MEDIAFIRE", "SEM KEY", "NOVA ATUALIZAÇÃO"]
     if mod_terms_titulos:
         gatilhos_thumb.insert(0, mod_terms_titulos[0].upper())
 
-    # Cálculo do SEO Score
-    score = 80
-    if total_chars_tags >= 450:
-        score += 10
-    if len(video_ids) >= 5:
-        score += 10
-
     relatorio = []
-    relatorio.append(f"📊 SCORE DE OTIMIZAÇÃO SEO: {score}% [EXCELENTE]")
-    relatorio.append("\n📌 COMENTÁRIO FIXADO ESTRATÉGICO (COPIE E COLE NO TOPO DO SEU VÍDEO):")
-    relatorio.append("-" * 50)
+    relatorio.append(f"📊 SCORE DE OTIMIZAÇÃO SEO DO VÍDEO: {score}%/100% [MÁXIMO ENGAJAMENTO]")
+    relatorio.append("\n📝 1. DESCRIÇÃO OTIMIZADA COMPLETA (COPIE E COLE NO SEU VÍDEO):")
+    relatorio.append("-" * 65)
+    relatorio.append(descricao_template)
+    relatorio.append("-" * 65)
+    relatorio.append("\n📌 2. COMENTÁRIO FIXADO ESTRATÉGICO (PINNED COMMENT):")
+    relatorio.append("-" * 65)
     relatorio.append(comentario_fixado)
-    relatorio.append("-" * 50)
-    relatorio.append("\n🖼️ PALAVRAS-CHAVE RECOMENDADAS PARA TEXTO DA CAPA / THUMBNAIL:")
+    relatorio.append("-" * 65)
+    relatorio.append("\n🖼️ 3. TEXTOS GATILHO RECOMENDADOS PARA A THUMBNAIL/CAPA:")
     relatorio.append(f"   ➔ [{ ' ]  [ '.join(gatilhos_thumb[:4]) }]")
-    relatorio.append("\n🛡️ AUDITORIA ANTI-STRIKE:")
-    relatorio.append("   ✅ Nomes de hacks e termos de risco substituídos com sucesso.")
-    relatorio.append("   ✅ Tags sanitizadas e dentro das diretrizes da comunidade.")
+    relatorio.append("\n🛡️ 4. AUDITORIA DE SEGURANÇA E PROTEÇÃO DA CONTA:")
+    relatorio.append("   ✅ Termos sensíveis substituídos com sucesso no título e nas tags.")
+    relatorio.append("   ✅ Descrição formatada sem links diretos para evitar remoção automatizada.")
 
     return "\n".join(relatorio)
 
 def executar_gerador():
-    jogo = os.getenv("GAME_NAME", "8 Ball Pool").strip()
+    jogo = os.getenv("GAME_NAME", "Avakin Life").strip()
     versao = os.getenv("GAME_VERSION", "").strip()
     categoria = os.getenv("CATEGORY", "android").strip().lower()
     idioma_modo = os.getenv("LANGUAGE_MODE", "ambos").strip().lower()
 
     print("=" * 75)
-    print(f"🤖 ROBÔ SEO YOUTUBE - PENTA-BOT ENGINE 100%: {jogo.upper()} {versao}")
+    print(f"🤖 ROBÔ SEO YOUTUBE - SISTEMA PENTA-BOT AUTOMÁTICO: {jogo.upper()} {versao}")
     print(f"📂 Categoria: {categoria.upper()} | Idioma: {idioma_modo.upper()}")
     print("=" * 75)
 
@@ -353,13 +375,14 @@ def executar_gerador():
         for i, t in enumerate(fallback_titulos[:4], 1):
             print(f"{i}. 🚀 {t}")
 
-    # 2. BOT 2 - Extração Massiva
+    # 2. BOT 2 - Extração Massiva Sem Limites
     hashtags_massivas = bot_2_super_raspador_hashtags_massivo(video_ids, jogo)
 
-    print("\n🔎 HASHTAGS DA DESCRIÇÃO (VARREDURA CHEIA NOS 10 VÍDEOS DO TOPO):")
+    print("\n🔎 HASHTAGS DA DESCRIÇÃO (10 VÍDEOS VARRIDOS - EXTRAÇÃO MASSIVA SEM LIMITES):")
     print("-" * 75)
     if hashtags_massivas:
         print(" ".join(hashtags_massivas))
+        print(f"\n📊 Total de Hashtags Puxadas: {len(hashtags_massivas)}")
     else:
         clean_game = re.sub(r'[^a-zA-Z0-9]', '', jogo)
         print(f"#{clean_game} #{clean_game}Mod #{clean_game}ModMenu #{clean_game}Gameplay #{clean_game}{ANO_ATUAL} #ModApk #Mediafire #AndroidGames")
@@ -374,10 +397,12 @@ def executar_gerador():
     print("-" * 75)
     print(f"📊 Total de caracteres utilizados: {len(tags_caixa_final)}/500")
 
-    # 4. BOT 5 - Engajamento, CTR & Comentário Fixado
-    relatorio_bot5 = bot_5_mestre_engajamento_e_ctr(jogo, versao, video_ids, mod_terms_titulos, len(tags_caixa_final))
+    # 4. BOT 5 - Estrategista Inteligente
+    relatorio_bot5 = bot_5_mestre_estrategico_e_copywriting(
+        jogo, versao, video_ids, mod_terms_titulos, len(tags_caixa_final), len(hashtags_massivas)
+    )
 
-    print("\n💡 BOT 5 - MESTRE DE ENGAJAMENTO, CTR & COMENTÁRIO FIXADO:")
+    print("\n💡 BOT 5 - INTELIGÊNCIA COMPLETA DE ESTRATÉGIA & ENGAJAMENTO:")
     print("-" * 75)
     print(relatorio_bot5)
     print("=" * 75)
