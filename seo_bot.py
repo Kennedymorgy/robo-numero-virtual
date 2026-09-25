@@ -125,7 +125,7 @@ def bot_1_minerador_topo(jogo, categoria):
 def bot_2_super_raspador_hashtags(video_ids, jogo):
     """
     BOT 2 (EXTRAÇÃO MASSIVA E SEM CORTES):
-    Varre os vídeos de 1 a 10, decodifica unicodes e entidades HTML para NUNCA cortar palavras (ex: #mediafire),
+    Varre os vídeos de 1 a 10, decodifica unicodes e entidades HTML para NUNCA cortar palavras,
     localiza o vídeo com mais hashtags na descrição e consolida TUDO sem perdas.
     """
     todas_hashtags_consolidadas = []
@@ -144,7 +144,7 @@ def bot_2_super_raspador_hashtags(video_ids, jogo):
                 html = res.text
                 
                 # Trata entidades HTML e Unicode para garantir palavra inteira completa (ex: #mediafire)
-                html_clean = html.replace('\\u0023', '#').replace('\\u0026', '&').replace('&amp;', '&')
+                html_clean = html.replace('\\u0023', '#').replace('\u0023', '#').replace('\\u0026', '&').replace('&amp;', '&')
 
                 texto_alvo = ""
                 matches_json = re.findall(r'"text":"([^"]+)"', html_clean)
