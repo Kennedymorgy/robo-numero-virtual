@@ -1,0 +1,43 @@
+name: Gerador SEO YouTube Multi-Canal
+
+on:
+  workflow_dispatch:
+    inputs:
+      game_name:
+        description: 'Nome do Jogo (ex: FR Legends, God of War, Avakin Life)'
+        required: true
+        default: 'FR Legends'
+      game_version:
+        description: 'Versão/Detalhe (ex: v0.4.8, PT-BR ISO, v5.4.0) [Opcional]'
+        required: false
+        default: ''
+      category:
+        description: 'Tipo de Conteúdo'
+        required: true
+        type: choice
+        options:
+          - 'android'
+          - 'ppsspp'
+        default: 'android'
+
+jobs:
+  gerar-seo:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Baixar código do repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar ambiente Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Instalar biblioteca de requisições
+        run: pip install requests
+
+      - name: Rodar Gerador SEO
+        env:
+          GAME_NAME: ${{ github.event.inputs.game_name }}
+          GAME_VERSION: ${{ github.event.inputs.game_version }}
+          CATEGORY: ${{ github.event.inputs.category }}
+        run: python seo_bot.py
