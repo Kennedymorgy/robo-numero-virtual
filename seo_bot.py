@@ -4,7 +4,6 @@ import datetime
 import re
 import json
 import urllib.parse
-import string
 
 ANO_ATUAL = datetime.datetime.now().year
 
@@ -18,7 +17,7 @@ COOKIES_YT = {
     "SOCS": "CAI"
 }
 
-# Filtro rigoroso para remover marcas d'água de canais, lixo de sistema e termos sem valor
+# Bloqueio de termos de sistema, canais de terceiros e ruídos
 LIXO_SISTEMA_E_CANANIS = {
     'vídeo', 'compartilhamento', 'celular com câmera', 'videofone', 'gratuito', 'envio',
     'video', 'sharing', 'camera phone', 'free', 'upload', 'youtube', 'yt', 'shorts',
@@ -28,8 +27,12 @@ LIXO_SISTEMA_E_CANANIS = {
     '45', 'h', '404', 'sub', 'subscribe', 'like', 'comment'
 }
 
+def eh_hex_color(string):
+    """Filtra vazamentos de cores CSS do HTML do YouTube (ex: fff, 0f0f0f, e3e3e3, FF0033)."""
+    return bool(re.fullmatch(r'^[0-9a-fA-F]{3}$|^[0-9a-fA-F]{6}$|^[0-9a-fA-F]{8}$', string))
+
 def limpar_titulo_anti_strike(titulo):
-    """Substitui termos sensíveis no título para evitar punições no canal."""
+    """Higieniza termos sensíveis nos títulos para proteção contra avisos/strikes."""
     substituicoes = {
         r'\bHACK\b': 'Showcase',
         r'\bHACKS\b': 'Gameplay',
@@ -43,16 +46,18 @@ def limpar_titulo_anti_strike(titulo):
     titulo_limpo = titulo
     for padrao, sub in substituicoes.items():
         titulo_limpo = re.sub(padrao, sub, titulo_limpo, flags=re.IGNORECASE)
-    return titulo_limpo
+    return titulo_limpo.strip()
 
 def eh_hashtag_valida(ht_raw, jogo):
-    """Valida se a hashtag é limpa, real e associada ao jogo."""
+    """Garante que apenas hashtags reais do jogo passem pelo filtro."""
     ht = ht_raw.lower().replace("#", "").strip()
 
     if len(ht) < 3 or ht.isdigit() or ht in LIXO_SISTEMA_E_CANANIS:
         return False
 
-    # Filtra nomes de criadores com padrões como nome_123
+    if eh_hex_color(ht):
+        return False
+
     if re.search(r'_\d+$', ht) or ('tv' in ht and len(ht) > 8):
         if not any(k in ht for k in ['mod', 'apk', 'game', 'gameplay']):
             return False
@@ -65,22 +70,30 @@ def eh_hashtag_valida(ht_raw, jogo):
 
 def extrair_hashtags_do_melhor_video(video_ids, jogo):
     """
-    Analisa os vídeos do topo do YouTube e seleciona O VÍDEO
-    que possui o pacote mais completo e limpo de hashtags.
+    Scrape exclusivo da caixa de descrição do vídeo para evitar sujeira de CSS/HTML.
+    Localiza o vídeo com maior volume de hashtags válidas.
     """
     melhor_pacote = []
     max_hashtags = 0
 
-    for v_id in video_ids[:10]:
+    for v_id in video_ids[:8]:
         try:
             url = f"https://www.youtube.com/watch?v={v_id}"
             res = requests.get(url, headers=HEADERS_DESKTOP, cookies=COOKIES_YT, timeout=6)
             if res.status_code == 200:
                 html = res.text
                 
-                # Garante que as tralhas fiquem com espaço antes para não grudarem (#a#b)
-                html_formatado = re.sub(r'#', ' #', html)
-                raw_hts = re.findall(r'#([a-zA-Z0-9_]+)', html_formatado)
+                # Extrai estritamente o conteúdo da descrição do vídeo
+                desc_match = re.search(r'"shortDescription":"(.*?)","isCrawlable"', html)
+                texto_alvo = desc_match.group(1) if desc_match else ""
+                
+                if not texto_alvo:
+                    meta_desc = re.search(r'<meta\s+name="description"\s+content="([^"]+)"', html, re.IGNORECASE)
+                    texto_alvo = meta_desc.group(1) if meta_desc else ""
+
+                # Corrige hashtags coladas (#a#b -> #a #b)
+                texto_formatado = re.sub(r'#', ' #', texto_alvo)
+                raw_hts = re.findall(r'#([a-zA-Z0-9_]+)', texto_formatado)
 
                 hashtags_video = []
                 for ht in raw_hts:
@@ -98,7 +111,7 @@ def extrair_hashtags_do_melhor_video(video_ids, jogo):
     return melhor_pacote
 
 def buscar_autocomplete_yt(termo, lang="pt", country="BR"):
-    """Consulta a API do YouTube em tempo real para ver o que as pessoas digitam."""
+    """Consulta em tempo real o serviço de autocomplete do YouTube."""
     url = f"http://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q={urllib.parse.quote(termo)}&gl={country}&hl={lang}"
     try:
         r = requests.get(url, headers=HEADERS_DESKTOP, timeout=5)
@@ -108,78 +121,99 @@ def buscar_autocomplete_yt(termo, lang="pt", country="BR"):
         pass
     return []
 
-def minerar_buscas_profundas_yt(jogo, categoria, idioma_modo):
-    """
-    Realiza mineração profunda no YouTube via Autocomplete Alfabético.
-    Puxa exatamente o que os usuários reais pesquisaram nos últimos 30 dias.
-    """
+# ==============================================================================
+# SISTEMA DE TRIPLE-BOT (3 ENGINES EM CADEIA)
+# ==============================================================================
+
+def engine_1_keywords_html(video_ids):
+    """BOT 1: Extrai keywords diretas programadas na estrutura interna do vídeo."""
+    keywords = []
+    for v_id in video_ids[:5]:
+        try:
+            url = f"https://www.youtube.com/watch?v={v_id}"
+            res = requests.get(url, headers=HEADERS_DESKTOP, cookies=COOKIES_YT, timeout=5)
+            if res.status_code == 200:
+                html = res.text
+                kw_match = re.search(r'"keywords":\s*\[(.*?)\]', html)
+                if kw_match:
+                    kws = re.findall(r'"([^"]+)"', kw_match.group(1))
+                    keywords.extend(kws)
+        except Exception:
+            pass
+    return keywords
+
+def engine_2_autocomplete_deep(jogo, categoria, idioma_modo):
+    """BOT 2: Executa varreduras de autocomplete focadas no intenção real do usuário."""
     j_clean = re.sub(r'[^a-zA-Z0-9 ]', '', jogo).strip()
     
-    # Termos semente principais
     base_queries = [
-        f"{j_clean}",
-        f"{j_clean} mod",
-        f"{j_clean} hack",
+        f"{j_clean} mod apk",
         f"{j_clean} mod menu",
         f"{j_clean} dinheiro infinito",
         f"{j_clean} mediafire",
-        f"como baixar {j_clean}",
-        f"{j_clean} atualizado"
+        f"{j_clean} atualizado {ANO_ATUAL}",
+        f"como baixar {j_clean} mod",
+        f"{j_clean} download link",
+        f"{j_clean} gameplay android"
     ]
 
     if categoria == "ppsspp":
         base_queries = [
-            f"{j_clean} ppsspp",
-            f"{j_clean} psp",
-            f"{j_clean} iso",
+            f"{j_clean} ppsspp iso",
+            f"{j_clean} psp mediafire",
             f"como baixar {j_clean} ppsspp",
-            f"{j_clean} mediafire ppsspp"
+            f"{j_clean} psp android",
+            f"{j_clean} iso altamente compactado"
         ]
 
-    buscas_capturadas = []
-
-    # 1. Puxa buscas das frases principais
+    buscas = []
     for bq in base_queries:
         if idioma_modo in ["ambos", "pt_br"]:
-            buscas_capturadas.extend(buscar_autocomplete_yt(bq, "pt", "BR"))
+            buscas.extend(buscar_autocomplete_yt(bq, "pt", "BR"))
         if idioma_modo in ["ambos", "ingles"]:
-            buscas_capturadas.extend(buscar_autocomplete_yt(bq, "en", "US"))
+            buscas.extend(buscar_autocomplete_yt(bq, "en", "US"))
 
-    # 2. Mineração Alfabética (Simula o usuário digitando o nome + letra do alfabeto)
-    letras_chave = ['a', 'b', 'c', 'd', 'm', 'p', 's', 'v']
-    for letra in letras_chave:
-        query_letra = f"{j_clean} {letra}"
-        buscas_capturadas.extend(buscar_autocomplete_yt(query_letra, "pt", "BR"))
+    return buscas
 
-    # Limpeza e deduplicação inteligente das buscas reais
+def engine_3_cruzador_e_validador(candidatas, jogo, categoria):
+    """BOT 3: Valida, higieniza, elimina duplicatas e bloqueia termos irrelevantes."""
     seen = set()
-    tags_limpas = []
+    tags_aprovadas = []
 
-    for item in buscas_capturadas:
-        item_clean = re.sub(r'[^\w\s\-\/]', '', item).strip()
-        item_lower = item_clean.lower()
+    # Lista de bloqueio para pesquisas fora do nicho de mods/games
+    termos_fora_de_foco = ['rosto', 'face ideas', 'outfit ideas', 'look', 'maquiagem', 'cabelo', 'male face', 'female face']
 
-        # Atualiza anos antigos para o ano atual
+    for c in candidatas:
+        c_clean = re.sub(r'[^\w\s\-\/]', '', c).strip()
+        
+        # Atualiza referências a anos anteriores para o ano atual
         for ano_antigo in range(2015, ANO_ATUAL):
-            item_clean = re.sub(r'\b' + str(ano_antigo) + r'\b', str(ANO_ATUAL), item_clean, flags=re.IGNORECASE)
+            c_clean = re.sub(r'\b' + str(ano_antigo) + r'\b', str(ANO_ATUAL), c_clean, flags=re.IGNORECASE)
 
-        if item_lower in seen or len(item_clean) <= 3:
+        c_lower = c_clean.lower()
+
+        # Anti-duplicação estrita
+        if c_lower in seen or len(c_clean) <= 3:
             continue
 
-        if item_lower in LIXO_SISTEMA_E_CANANIS:
+        # Bloqueio de lixo, cores hex e termos fora de foco
+        if c_lower in LIXO_SISTEMA_E_CANANIS or eh_hex_color(c_lower):
             continue
 
-        if categoria == "android" and ("ppsspp" in item_lower or "psp " in item_lower):
+        if any(tf in c_lower for tf in termos_fora_de_foco):
             continue
 
-        seen.add(item_lower)
-        tags_limpas.append(item_clean)
+        if categoria == "android" and ("ppsspp" in c_lower or "psp " in c_lower):
+            continue
 
-    # Organização das tags ordenadas pela relevância e variação
+        seen.add(c_lower)
+        tags_aprovadas.append(c_clean)
+
+    # Organização para preenchimento limite de 500 caracteres
     tags_finais = []
     tamanho_total = 0
 
-    for t in tags_limpas:
+    for t in tags_aprovadas:
         custo = len(t) + 2 if tags_finais else len(t)
         if tamanho_total + custo <= 500:
             tags_finais.append(t)
@@ -190,7 +224,7 @@ def minerar_buscas_profundas_yt(jogo, categoria, idioma_modo):
     return ", ".join(tags_finais)
 
 def minerar_titulos_e_ids(jogo, categoria):
-    """Puxa os vídeos do topo do YouTube para o jogo especificado."""
+    """Coleta o topo do ranking de buscas do YouTube."""
     termo_busca = f"{jogo} mod apk" if categoria == "android" else f"{jogo} ppsspp"
     query_encoded = urllib.parse.quote(termo_busca)
     url = f"https://www.youtube.com/results?search_query={query_encoded}"
@@ -218,9 +252,9 @@ def minerar_titulos_e_ids(jogo, categoria):
                                 titulos.append(limpar_titulo_anti_strike(title))
                                 if v_id:
                                     video_ids.append(v_id)
-                            if len(video_ids) >= 12:
+                            if len(titulos) >= 10:
                                 break
-                    if len(video_ids) >= 12:
+                    if len(titulos) >= 10:
                         break
     except Exception as e:
         print(f"[-] Aviso na busca de vídeos: {e}")
@@ -234,53 +268,59 @@ def executar_gerador():
     idioma_modo = os.getenv("LANGUAGE_MODE", "ambos").strip().lower()
 
     print("=" * 75)
-    print(f"🤖 ROBÔ SEO YOUTUBE - MINERAÇÃO REAL DE ALTA PERFORMANCE: {jogo.upper()} {versao}")
+    print(f"🤖 ROBÔ SEO YOUTUBE - SISTEMA TRIPLE BOT AUTOMÁTICO: {jogo.upper()} {versao}")
     print(f"📂 Categoria: {categoria.upper()} | Idioma: {idioma_modo.upper()}")
     print("=" * 75)
 
     # 1. Varredura do Topo do YouTube
     titulos_reais, video_ids = minerar_titulos_e_ids(jogo, categoria)
 
-    # 2. Exibição dos Melhores Títulos
-    print("\n🔥 TOP 3 TÍTULOS MAIS POTENTES DO YOUTUBE (ANTI-STRIKE SEGURO):")
+    # 2. TOP 4 TÍTULOS DOS 4 PRIMEIROS VÍDEOS
+    print("\n🔥 TOP 4 TÍTULOS MAIS POTENTES DO YOUTUBE (ANTI-STRIKE SEGURO):")
     print("-" * 75)
-    if titulos_reais:
-        for i, t in enumerate(titulos_reais[:3], 1):
+    if len(titulos_reais) >= 4:
+        for i, t in enumerate(titulos_reais[:4], 1):
             print(f"{i}. 🚀 {t}")
     else:
         v_str = f" {versao}" if versao else ""
-        print(f"1. 🚀 {jogo.upper()}{v_str} MOD MENU SHOWCASE ATUALIZADO")
-        print(f"2. 🔥 {jogo.upper()}{v_str} NOVO MOD APK MEDIAFIRE")
-        print(f"3. ⚡ {jogo.upper()}{v_str} GAMEPLAY & TUTORIAL COMPLETO")
+        fallback_titulos = [
+            f"{jogo.upper()}{v_str} MOD MENU SHOWCASE ATUALIZADO",
+            f"{jogo.upper()}{v_str} NOVO MOD APK MEDIAFIRE",
+            f"{jogo.upper()}{v_str} GAMEPLAY & TUTORIAL COMPLETO",
+            f"{jogo.upper()}{v_str} UNLIMITED RESOURCES SHOWCASE"
+        ]
+        for i, t in enumerate(fallback_titulos[:4], 1):
+            print(f"{i}. 🚀 {t}")
 
-    # 3. Extração do Pacote de Hashtags do Melhor Vídeo
+    # 3. EXTRAÇÃO DE HASHTAGS DA DESCRIÇÃO (100% LIMPAS E ISOLADAS)
     melhores_hashtags = extrair_hashtags_do_melhor_video(video_ids, jogo)
-    
-    # Se o vídeo do topo tiver poucas, complementa com as limpas do jogo
-    if len(melhores_hashtags) < 8:
-        clean_game = re.sub(r'[^a-zA-Z0-9]', '', jogo)
-        extras = [f"#{clean_game}", f"#{clean_game}Mod", f"#{clean_game}ModMenu", f"#{clean_game}Gameplay", f"#{clean_game}{ANO_ATUAL}", "#ModApk", "#Mediafire", "#AndroidGames"]
-        for ex in extras:
-            if ex.lower() not in [h.lower() for h in melhores_hashtags]:
-                melhores_hashtags.append(ex)
 
-    print("\n📝 DESCRIÇÃO ENXUTA (AVISO LEGAL + HASHTAGS EXTRAÍDAS DO MELHOR VÍDEO):")
+    print("\n📝 DESCRIÇÃO ENXUTA (AVISO LEGAL + HASHTAGS EXTRAÍDAS DO VÍDEO MAIS RICO):")
     print("-" * 75)
     print("⚠️ AVISO LEGAL E ISENÇÃO DE RESPONSABILIDADE / LEGAL DISCLAIMER:")
     print("Este vídeo possui caráter puramente educativo e demonstrativo de performance em jogos mobile/emulação. Todos os direitos e marcas registradas pertencem aos seus respetivos criadores e desenvolvedores.")
     print("This video is purely educational and for performance demonstration purposes. All rights belong to their respective owners.")
     print("-" * 50)
-    print("🔎 HASHTAGS EXTRAÍDAS DO YOUTUBE (SEPARADAS E LIMPAS):")
-    # Exibe garantindo 1 espaço entre cada hashtag
-    print(" ".join(melhores_hashtags))
+    print("🔎 HASHTAGS EXTRAÍDAS DO YOUTUBE (100% LIMPAS E ORGANIZADAS):")
+    if melhores_hashtags:
+        print(" ".join(melhores_hashtags))
+    else:
+        clean_game = re.sub(r'[^a-zA-Z0-9]', '', jogo)
+        print(f"#{clean_game} #{clean_game}Mod #{clean_game}ModMenu #{clean_game}Gameplay #{clean_game}{ANO_ATUAL} #ModApk #Mediafire #AndroidGames")
 
-    # 4. Caixa de Tags de Busca Brutas via Mineração Alfabética
-    tags_caixa = minerar_buscas_profundas_yt(jogo, categoria, idioma_modo)
-    print("\n📌 CAIXA DE TAGS DE BUSCA BRUTAS (100% TERMOS REAIS PESQUISADOS):")
+    # 4. SISTEMA TRIPLE BOT PARA TAGS DE BUSCA BRUTAS
+    raw_kws_bot1 = engine_1_keywords_html(video_ids)
+    raw_kws_bot2 = engine_2_autocomplete_deep(jogo, categoria, idioma_modo)
+    
+    # O Bot 3 consolida, higieniza, desduplica e valida o resultado final
+    candidatas_totais = raw_kws_bot1 + raw_kws_bot2
+    tags_caixa_final = engine_3_cruzador_e_validador(candidatas_totais, jogo, categoria)
+
+    print("\n📌 CAIXA DE TAGS DE BUSCA BRUTAS (SISTEMA TRIPLE-BOT - 100% REAIS E RELEVANTES):")
     print("-" * 75)
-    print(tags_caixa)
+    print(tags_caixa_final)
     print("-" * 75)
-    print(f"📊 Total de caracteres utilizados: {len(tags_caixa)}/500")
+    print(f"📊 Total de caracteres utilizados: {len(tags_caixa_final)}/500")
 
 if __name__ == "__main__":
     executar_gerador()
