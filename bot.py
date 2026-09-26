@@ -3,8 +3,8 @@ import re
 from urllib.parse import urljoin
 from playwright.async_api import async_playwright
 
-# 🌍 PREFIXOS PERMITIDOS (Focado em alta aceitação e sem Suíça +41)
-PREFIXOS_ACEITOS = ['+1', '+55', '+351', '+44', '+33', '+34', '+358', '+46', '+31', '+49']
+# 🌍 PREFIXOS PERMITIDOS (Focados em ALTA ACEITAÇÃO: EUA, Portugal, Finlândia, UK, França, Holanda, Alemanha)
+PREFIXOS_ACEITOS = ['+1', '+351', '+358', '+44', '+33', '+31', '+49']
 
 # Fontes configuradas com seletores e comportamentos específicos
 FONTES_SMS = [
@@ -49,21 +49,22 @@ def construir_link_direto(base_url, href, numero_limpo):
     return None
 
 async def configurar_contexto_anti_cloudflare(browser):
-    """Cria um contexto altamente humanizado para burlar proteções Cloudflare/Anti-bot."""
+    """Cria um contexto emulando um dispositivo móvel (Android) para burlar proteções Anti-bot e Cloudflare."""
     context = await browser.new_context(
-        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-        viewport={"width": 1366, "height": 768},
-        locale="pt-PT",
-        timezone_id="Europe/Lisbon",
-        device_scale_factor=1,
-        has_touch=False,
+        user_agent="Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36",
+        viewport={"width": 412, "height": 915},
+        is_mobile=True,
+        has_touch=True,
+        locale="pt-BR",
+        timezone_id="America/Sao_Paulo",
+        device_scale_factor=2.5,
         extra_http_headers={
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-            "Accept-Language": "pt-PT,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
             "Accept-Encoding": "gzip, deflate, br",
-            "Sec-Ch-Ua": '"Google Chrome";v="125", "Chromium";v="125", "Not.A/Brand";v="24"',
-            "Sec-Ch-Ua-Mobile": "?0",
-            "Sec-Ch-Ua-Platform": '"Windows"',
+            "Sec-Ch-Ua": '"Not.A/Brand";v="8", "Chromium";v="114", "Google Chrome";v="114"',
+            "Sec-Ch-Ua-Mobile": "?1",
+            "Sec-Ch-Ua-Platform": '"Android"',
             "Sec-Fetch-Dest": "document",
             "Sec-Fetch-Mode": "navigate",
             "Sec-Fetch-Site": "none",
@@ -76,19 +77,24 @@ async def configurar_contexto_anti_cloudflare(browser):
     await context.add_init_script("""
         Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         window.navigator.chrome = { runtime: {} };
-        Object.defineProperty(navigator, 'languages', { get: () => ['pt-PT', 'pt', 'en-US', 'en'] });
+        Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
+        Object.defineProperty(navigator, 'languages', { get: () => ['pt-BR', 'pt', 'en-US', 'en'] });
     """)
     return context
 
 async def raspar_quackr(page, base_url):
-    """Varre o Quackr PT lidando com paginação e carregamento dinâmico."""
+    """Varre o Quackr PT lidando com paginação e carregamento dinâmico (com scroll mobile)."""
     numeros = []
     for pagina in range(1, 4):
         url_pag = f"{base_url}?page={pagina}" if pagina > 1 else base_url
         try:
             await page.goto(url_pag, timeout=30000, wait_until="domcontentloaded")
-            await page.mouse.move(100, 200)
-            await page.wait_for_timeout(2500)
+            
+            # Simula scroll no ecrã para carregar listas dinâmicas em mobile
+            await page.mouse.wheel(0, 500)
+            await page.wait_for_timeout(1500)
+            await page.mouse.wheel(0, -200)
+            await page.wait_for_timeout(1000)
             
             links = await page.locator("a").all()
             for link in links:
@@ -107,12 +113,14 @@ async def raspar_quackr(page, base_url):
     return numeros
 
 async def raspar_smsman(page, base_url):
-    """Varre o SMS-Man Grátis com foco em cartões e tabelas."""
+    """Varre o SMS-Man Grátis com foco em cartões e tabelas no layout mobile."""
     numeros = []
     try:
         await page.goto(base_url, timeout=30000, wait_until="domcontentloaded")
-        await page.mouse.move(200, 300)
-        await page.wait_for_timeout(3000)
+        
+        # Simula scroll para carregar todos os elementos invisíveis na primeira dobra
+        await page.mouse.wheel(0, 600)
+        await page.wait_for_timeout(2000)
         
         elementos = await page.locator("a, div, td, span").all()
         for elem in elementos:
@@ -144,7 +152,9 @@ async def processar_fonte(fonte, browser, semaphore):
                 numeros_encontrados = await raspar_smsman(page, fonte["url"])
             else:
                 await page.goto(fonte["url"], timeout=25000, wait_until="domcontentloaded")
+                await page.mouse.wheel(0, 400)
                 await page.wait_for_timeout(2000)
+                
                 links = await page.locator("a").all()
                 for link in links:
                     try:
@@ -208,7 +218,7 @@ def exibir_relatorio(aprovados):
         print("\n❌ NENHUM NÚMERO DISPONÍVEL ENCONTRADO NESTA VARREDURA.")
 
 async def main():
-    print("\n⚡ [BOT YOUTUBE BLINDADO v8] Iniciando varredura com bypass Anti-Cloudflare...")
+    print("\n⚡ [BOT YOUTUBE BLINDADO v9] Iniciando varredura Mobile com bypass Anti-Cloudflare...")
     
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
