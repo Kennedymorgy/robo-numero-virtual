@@ -4,12 +4,13 @@ from urllib.parse import urljoin
 from playwright.async_api import async_playwright
 
 # 🌍 PREFIXOS PERMITIDOS (EUA, Portugal, Finlândia, UK, França, Holanda, Alemanha)
-PREFIXOS_ACEITOS = ['+1', '+351', '+358', '+44', '+33', '+31', '+49']
+PREFIXOS_ACEITOS = ('+1', '+351', '+358', '+44', '+33', '+31', '+49')
 
 # Fontes configuradas
 FONTES_SMS = [
-    {"nome": "Quackr PT", "url": "https://quackr.io/pt/temporary-numbers", "tipo": "quackr"},
-    {"nome": "SMS-Man Gratis", "url": "https://sms-man.com/pt/free-numbers", "tipo": "smsman"},
+    {"nome": "Quackr PT P1", "url": "https://quackr.io/pt/temporary-numbers", "tipo": "padrao"},
+    {"nome": "Quackr PT P2", "url": "https://quackr.io/pt/temporary-numbers?page=2", "tipo": "padrao"},
+    {"nome": "SMS-Man Gratis", "url": "https://sms-man.com/pt/free-numbers", "tipo": "padrao"},
     {"nome": "Receive-SMSS", "url": "https://receive-smss.com/", "tipo": "padrao"},
     {"nome": "SMSToMe", "url": "https://smstome.com/country/usa", "tipo": "padrao"},
     {"nome": "AnonymSMS", "url": "https://anonymsms.com/", "tipo": "padrao"},
@@ -20,190 +21,139 @@ FONTES_SMS = [
     {"nome": "SMS-Online.co", "url": "https://sms-online.co/", "tipo": "padrao"}
 ]
 
-# Seletores comuns onde ficam guardadas as caixas/tabelas de mensagens SMS nos sites
-SELETORES_CONTAINER_SMS = [
-    "table", ".messages", ".sms-list", ".messages-list", 
-    ".list-group", "article", "main", ".number-messages"
-]
-
-def extrair_numero_limpo(texto):
-    """Extrai e sanitiza os dígitos para formato E.164 rigoroso."""
-    if not texto:
-        return None
+def extrair_numero_inteligente(texto, href=""):
+    """Identifica o número e seu país combinando o texto visível e o link da página."""
+    combo = f"{texto} {href}".lower()
     
-    limpo = re.sub(r'[^\d+]', '', texto)
-    if not limpo.startswith('+') and len(limpo) >= 10:
-        limpo = '+' + limpo
+    # 1. Procura números que já começam com + (ex: +12025550123 ou +351912345678)
+    com_mais = re.findall(r'\+\d{10,15}', re.sub(r'[^\d+]', '', combo))
+    for num in com_mais:
+        if num.startswith('+41'): # Descarta Suíça
+            continue
+        if any(num.startswith(p) for p in PREFIXOS_ACEITOS):
+            return num
 
-    if 10 <= len(limpo) <= 16:
-        if limpo.startswith('+41'):  # Descarta Suíça
-            return None
-        if any(limpo.startswith(pref) for pref in PREFIXOS_ACEITOS):
-            return limpo
+    # 2. Procura sequências numéricas de 10 a 15 dígitos sem +
+    digitos_lista = re.findall(r'\b\d{10,15}\b', combo)
+    for dig in digitos_lista:
+        # Detecta o país com base nas palavras-chave da URL/texto
+        if any(k in combo for k in ['usa', 'united-states', 'us', 'america']):
+            cand = '+1' + dig if not dig.startswith('1') else '+' + dig
+        elif any(k in combo for k in ['portugal', 'pt']):
+            cand = '+351' + dig if not dig.startswith('351') else '+' + dig
+        elif any(k in combo for k in ['uk', 'united-kingdom', 'gb', 'england']):
+            cand = '+44' + dig if not dig.startswith('44') else '+' + dig
+        elif any(k in combo for k in ['france', 'francia', 'fr']):
+            cand = '+33' + dig if not dig.startswith('33') else '+' + dig
+        elif any(k in combo for k in ['finland', 'finlandia']):
+            cand = '+358' + dig if not dig.startswith('358') else '+' + dig
+        elif any(k in combo for k in ['netherlands', 'holland', 'holanda', 'nl']):
+            cand = '+31' + dig if not dig.startswith('31') else '+' + dig
+        elif any(k in combo for k in ['germany', 'alemanha', 'de']):
+            cand = '+49' + dig if not dig.startswith('49') else '+' + dig
+        else:
+            cand = '+' + dig
+
+        if cand.startswith('+41'):
+            continue
+        if any(cand.startswith(p) for p in PREFIXOS_ACEITOS) and 11 <= len(cand) <= 16:
+            return cand
+            
     return None
 
-def construir_link_direto(base_url, href, numero_limpo):
-    """Garante a montagem correta da URL para a caixa de mensagens."""
-    if not href or href == "#" or "javascript" in href:
-        return None
-        
-    url_completa = urljoin(base_url, href)
-    digitos = re.sub(r'\D', '', numero_limpo)
-    
-    if len(digitos) >= 7 and (digitos[-7:] in url_completa or digitos in url_completa):
-        return url_completa
-    elif any(x in href.lower() for x in ['number', 'num', 'sms', 'receive', 'phone', 'free-numbers', 'temporary-numbers']) and len(href) > 3:
-        return url_completa
-    return url_completa
-
 async def configurar_contexto_anti_cloudflare(browser):
-    """Cria contexto emulando dispositivo móvel Android para bypass de verificações."""
+    """Cria contexto emulando dispositivo móvel Android e bloqueia apenas mídia pesada."""
     context = await browser.new_context(
         user_agent="Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36",
         viewport={"width": 412, "height": 915},
         is_mobile=True,
         has_touch=True,
         locale="pt-BR",
-        timezone_id="America/Sao_Paulo",
-        device_scale_factor=2.5,
-        extra_http_headers={
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-            "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
-            "Accept-Encoding": "gzip, deflate, br",
-            "Sec-Ch-Ua": '"Not.A/Brand";v="8", "Chromium";v="114", "Google Chrome";v="114"',
-            "Sec-Ch-Ua-Mobile": "?1",
-            "Sec-Ch-Ua-Platform": '"Android"',
-            "Upgrade-Insecure-Requests": "1"
-        }
+        timezone_id="America/Sao_Paulo"
     )
     
-    await context.add_init_script("""
-        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-        window.navigator.chrome = { runtime: {} };
-        Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
-        Object.defineProperty(navigator, 'languages', { get: () => ['pt-BR', 'pt', 'en-US', 'en'] });
-    """)
+    # Bloqueia apenas imagens, vídeos e fontes (MANTÉM JS/CSS para os sites renderizarem)
+    await context.route("**/*.{png,jpg,jpeg,gif,webp,svg,mp4,mp3,woff,woff2,ttf,otf}", lambda route: route.abort())
     return context
 
-async def extrair_texto_caixa_sms(page):
-    """Isola o container de SMS para evitar ler cabeçalhos, rodapés e botões do site."""
-    textos = []
-    for seletor in SELETORES_CONTAINER_SMS:
-        try:
-            elementos = await page.locator(seletor).all()
-            for elem in elementos:
-                t = await elem.inner_text()
-                if t and len(t) > 20:
-                    textos.append(t)
-        except Exception:
-            continue
-    
-    if textos:
-        return " ".join(textos).lower()
-    
-    # Fallback caso o site use tags não padrão
-    return (await page.inner_text("body")).lower()
-
-async def raspar_quackr(page, base_url):
-    """Captura os números do Quackr garantindo a extração do link direto."""
-    numeros = []
-    for pagina in range(1, 4):
-        url_pag = f"{base_url}?page={pagina}" if pagina > 1 else base_url
-        try:
-            await page.goto(url_pag, timeout=25000, wait_until="domcontentloaded")
-            await page.mouse.wheel(0, 500)
-            await page.wait_for_timeout(1000)
-            
-            links = await page.locator("a").all()
-            for link in links:
-                try:
-                    href = await link.get_attribute("href") or ""
-                    txt = await link.inner_text()
-                    num_valido = extrair_numero_limpo(txt) or extrair_numero_limpo(href)
-                    if num_valido:
-                        link_direto = construir_link_direto(base_url, href, num_valido) or urljoin(base_url, href)
-                        if link_direto and not any(n['numero'] == num_valido for n in numeros):
-                            numeros.append({'numero': num_valido, 'link': link_direto, 'fonte': 'Quackr PT'})
-                except Exception:
-                    continue
-        except Exception:
-            break
-    return numeros
-
-async def raspar_smsman(page, base_url):
-    """Captura os números do SMS-Man contornando o carregamento dinâmico via DOM."""
-    numeros = []
-    try:
-        await page.goto(base_url, timeout=25000, wait_until="domcontentloaded")
-        await page.mouse.wheel(0, 800)
-        await page.wait_for_timeout(1500)
-        
-        elementos = await page.locator("a[href*='free-numbers'], div.card, div, td, span").all()
-        for elem in elementos:
-            try:
-                txt = await elem.inner_text()
-                href = await elem.get_attribute("href") or ""
-                num_valido = extrair_numero_limpo(txt) or extrair_numero_limpo(href)
-                if num_valido:
-                    link_direto = construir_link_direto(base_url, href, num_valido) or base_url
-                    if not any(n['numero'] == num_valido for n in numeros):
-                        numeros.append({'numero': num_valido, 'link': link_direto, 'fonte': 'SMS-Man Gratis'})
-            except Exception:
-                continue
-    except Exception:
-        pass
-    return numeros
-
 async def processar_fonte(fonte, browser, semaphore):
-    """Executa a raspagem com semáforo de alta concorrência."""
+    """Varre todos os links da página diretamente no DOM do navegador."""
     async with semaphore:
         context = await configurar_contexto_anti_cloudflare(browser)
         page = await context.new_page()
         numeros_encontrados = []
         
         try:
-            if fonte["tipo"] == "quackr":
-                numeros_encontrados = await raspar_quackr(page, fonte["url"])
-            elif fonte["tipo"] == "smsman":
-                numeros_encontrados = await raspar_smsman(page, fonte["url"])
-            else:
-                await page.goto(fonte["url"], timeout=20000, wait_until="domcontentloaded")
-                await page.mouse.wheel(0, 400)
-                await page.wait_for_timeout(1000)
+            await page.goto(fonte["url"], timeout=14000, wait_until="domcontentloaded")
+            await page.wait_for_timeout(1000)
+            
+            # Rola a página para acionar carregamento dinâmico
+            await page.evaluate("window.scrollBy(0, 800)")
+            await page.wait_for_timeout(500)
+            
+            # Extração instantânea de todos os links via JS no navegador
+            links_dom = await page.evaluate('''() => {
+                return Array.from(document.querySelectorAll('a')).map(a => ({
+                    href: a.getAttribute('href') || '',
+                    text: a.innerText || ''
+                }));
+            }''')
+            
+            for item in links_dom:
+                href = item['href']
+                text = item['text']
+                num_valido = extrair_numero_inteligente(text, href)
                 
-                links = await page.locator("a").all()
-                for link in links:
-                    try:
-                        href = await link.get_attribute("href") or ""
-                        txt = await link.inner_text()
-                        num_valido = extrair_numero_limpo(txt) or extrair_numero_limpo(href)
-                        if num_valido:
-                            link_direto = construir_link_direto(fonte["url"], href, num_valido)
-                            if link_direto and not any(n['numero'] == num_valido for n in numeros_encontrados):
-                                numeros_encontrados.append({'numero': num_valido, 'link': link_direto, 'fonte': fonte['nome']})
-                    except Exception:
-                        continue
+                if num_valido:
+                    link_direto = urljoin(fonte["url"], href) if (href and href != '#') else fonte["url"]
+                    if not any(n['numero'] == num_valido for n in numeros_encontrados):
+                        numeros_encontrados.append({
+                            'numero': num_valido, 
+                            'link': link_direto, 
+                            'fonte': fonte['nome']
+                        })
         except Exception as e:
-            print(f"  ├─ ⚠️ {fonte['nome']}: Erro de carregamento ({e})")
+            print(f"  ├─ ⚠️ {fonte['nome']}: Tempo esgotado ou bloqueio ({type(e).__name__})")
         finally:
             await context.close()
             
         print(f"  ├─ {fonte['nome']}: {len(numeros_encontrados)} número(s) localizado(s)")
         return numeros_encontrados
 
-# 🤖 ROBÔS TIPO A (10 WORKERS): Verificação de Canal YouTube
+async def extrair_texto_caixa_sms(page):
+    """Lê as mensagens da caixa de entrada direto no DOM com velocidade máxima."""
+    try:
+        texto = await page.evaluate('''() => {
+            const seletores = ['table', '.messages', '.sms-list', '.messages-list', '.list-group', 'article', 'main', '.number-messages', '.chat-box'];
+            let acumulado = '';
+            for (const sel of seletores) {
+                const elems = document.querySelectorAll(sel);
+                elems.forEach(el => {
+                    if (el.innerText && el.innerText.length > 15) {
+                        acumulado += ' ' + el.innerText;
+                    }
+                });
+            }
+            return acumulado.length > 20 ? acumulado : document.body.innerText;
+        }''')
+        return texto.lower()
+    except Exception:
+        return ""
+
+# 🤖 ROBÔS TIPO A: Verificação de Canal YouTube
 async def analisar_historico_youtube(item, browser, semaphore):
     async with semaphore:
         context = await configurar_contexto_anti_cloudflare(browser)
         page = await context.new_page()
         try:
-            await page.goto(item['link'], timeout=20000, wait_until="networkidle")
+            await page.goto(item['link'], timeout=12000, wait_until="domcontentloaded")
+            await page.wait_for_timeout(600)
             
             conteudo_caixa = await extrair_texto_caixa_sms(page)
             
-            # Regex rigoroso: procura 'youtube' acompanhado de códigos ou palavras de confirmação
-            padrao_yt_rigoroso = r'\byoutube\b.{0,30}\b(code|código|verific|confirm|\d{6})\b'
-            matches = re.findall(padrao_yt_rigoroso, conteudo_caixa)
+            # Detecta mensagens com 'youtube' e códigos de confirmação
+            padrao_yt = r'(?:youtube|yt).{0,40}(?:code|código|verific|confirm|\d{6})'
+            matches = re.findall(padrao_yt, conteudo_caixa, flags=re.IGNORECASE)
             
             item['usos_youtube'] = len(matches)
         except Exception:
@@ -212,19 +162,20 @@ async def analisar_historico_youtube(item, browser, semaphore):
             await context.close()
         return item
 
-# 🤖 ROBÔS TIPO B (5 WORKERS): Criação de Conta Google / Gmail
+# 🤖 ROBÔS TIPO B: Criação de Conta Google / Gmail
 async def analisar_historico_google_conta(item, browser, semaphore):
     async with semaphore:
         context = await configurar_contexto_anti_cloudflare(browser)
         page = await context.new_page()
         try:
-            await page.goto(item['link'], timeout=20000, wait_until="networkidle")
+            await page.goto(item['link'], timeout=12000, wait_until="domcontentloaded")
+            await page.wait_for_timeout(600)
             
             conteudo_caixa = await extrair_texto_caixa_sms(page)
             
-            # Regex rigoroso: procura padrões como G-XXXXXX ou 'google/gmail' associado a códigos
-            padrao_google_rigoroso = r'\bg-\d{5,6}\b|\b(google|gmail)\b.{0,30}\b(code|código|verific|confirm|\d{6})\b'
-            matches = re.findall(padrao_google_rigoroso, conteudo_caixa)
+            # Detecta mensagens com formato G-XXXXXX ou 'google'/'gmail'
+            padrao_google = r'g-\d{5,6}|(?:google|gmail).{0,40}(?:code|código|verific|confirm|\d{6})'
+            matches = re.findall(padrao_google, conteudo_caixa, flags=re.IGNORECASE)
             
             item['usos_google_conta'] = len(matches)
         except Exception:
@@ -235,10 +186,10 @@ async def analisar_historico_google_conta(item, browser, semaphore):
 
 def exibir_relatorio(aprovados_yt, aprovados_google):
     print("\n" + "="*70)
-    print("🚀 RELATÓRIO FINAL: NÚMEROS APROVADOS (FROTA DE 15 ROBÔS PARALELOS)")
+    print("🚀 RELATÓRIO FINAL: NÚMEROS APROVADOS")
     print("="*70)
 
-    print("\n🔴 [GRUPO 1: VERIFICAÇÃO DE CANAL YOUTUBE - 10 ROBÔS ATIVOS]")
+    print("\n🔴 [GRUPO 1: VERIFICAÇÃO DE CANAL YOUTUBE]")
     if aprovados_yt:
         for i, item in enumerate(aprovados_yt, 1):
             usos = item['usos_youtube']
@@ -250,7 +201,7 @@ def exibir_relatorio(aprovados_yt, aprovados_google):
     else:
         print("   ❌ Nenhum número virgem para YouTube localizado nesta rodada.")
 
-    print("\n🔵 [GRUPO 2: CRIAÇÃO DE CONTA GOOGLE / GMAIL - 5 ROBÔS ATIVOS]")
+    print("\n🔵 [GRUPO 2: CRIAÇÃO DE CONTA GOOGLE / GMAIL]")
     if aprovados_google:
         for i, item in enumerate(aprovados_google, 1):
             usos = item['usos_google_conta']
@@ -263,17 +214,17 @@ def exibir_relatorio(aprovados_yt, aprovados_google):
         print("   ❌ Nenhum número virgem para criar conta Google localizado nesta rodada.")
 
 async def main():
-    print("\n⚡ [BOT YOUTUBE & GOOGLE TURBO v11] Iniciando com frota expandida de robôs...")
+    print("\n⚡ [BOT YOUTUBE & GOOGLE TURBO v12] Coletando e analisando em velocidade máxima...")
     
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         
-        # Frota expandida de trabalhadores em paralelo
-        semaphore_coleta = asyncio.Semaphore(15)  # 15 Robôs coletando fontes
-        semaphore_yt = asyncio.Semaphore(10)       # 10 Robôs analisando YouTube
-        semaphore_google = asyncio.Semaphore(5)    # 5 Robôs analisando Criar Conta Google
+        # Limite otimizado para não gargalar a CPU da VM
+        semaphore_coleta = asyncio.Semaphore(6)
+        semaphore_yt = asyncio.Semaphore(8)
+        semaphore_google = asyncio.Semaphore(8)
         
-        print("\n🌐 Fase 1: Coletando números em tempo recorde nas 10 fontes...")
+        print("\n🌐 Fase 1: Coletando números de todas as fontes...")
         tasks_fontes = [processar_fonte(f, browser, semaphore_coleta) for f in FONTES_SMS]
         resultados = await asyncio.gather(*tasks_fontes)
         
@@ -283,7 +234,7 @@ async def main():
                 if not any(c['numero'] == item['numero'] for c in todos_candidatos):
                     todos_candidatos.append(item)
                     
-        print(f"\n🔍 Fase 2: {len(todos_candidatos)} candidatos reunidos. Analisando caixas de mensagens com a frota...")
+        print(f"\n🔍 Fase 2: {len(todos_candidatos)} candidatos reunidos. Analisando SMS recebidos...")
         
         if todos_candidatos:
             tasks_yt = [analisar_historico_youtube(dict(c), browser, semaphore_yt) for c in todos_candidatos]
