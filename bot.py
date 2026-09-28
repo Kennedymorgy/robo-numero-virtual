@@ -3,10 +3,10 @@ import re
 from urllib.parse import urljoin
 from playwright.async_api import async_playwright
 
-# 🌍 PREFIXOS PERMITIDOS (Focados em ALTA ACEITAÇÃO: EUA, Portugal, Finlândia, UK, França, Holanda, Alemanha)
+# 🌍 PREFIXOS PERMITIDOS (EUA, Portugal, Finlândia, UK, França, Holanda, Alemanha)
 PREFIXOS_ACEITOS = ['+1', '+351', '+358', '+44', '+33', '+31', '+49']
 
-# Fontes configuradas com seletores e comportamentos específicos
+# Fontes configuradas (incluindo 2 novas fontes ativas)
 FONTES_SMS = [
     {"nome": "Quackr PT", "url": "https://quackr.io/pt/temporary-numbers", "tipo": "quackr"},
     {"nome": "SMS-Man Gratis", "url": "https://sms-man.com/pt/free-numbers", "tipo": "smsman"},
@@ -15,7 +15,9 @@ FONTES_SMS = [
     {"nome": "AnonymSMS", "url": "https://anonymsms.com/", "tipo": "padrao"},
     {"nome": "TempSMSS", "url": "https://tempsmss.com/", "tipo": "padrao"},
     {"nome": "SMS24", "url": "https://sms24.me/en/countries/us", "tipo": "padrao"},
-    {"nome": "OnlineSMS", "url": "https://online-sms.org/", "tipo": "padrao"}
+    {"nome": "OnlineSMS", "url": "https://online-sms.org/", "tipo": "padrao"},
+    {"nome": "Receive-SMS.cc", "url": "https://receive-sms.cc/", "tipo": "padrao"},
+    {"nome": "SMS-Online.co", "url": "https://sms-online.co/", "tipo": "padrao"}
 ]
 
 def extrair_numero_limpo(texto):
@@ -35,7 +37,7 @@ def extrair_numero_limpo(texto):
     return None
 
 def construir_link_direto(base_url, href, numero_limpo):
-    """Garante a montagem correta da URL para a caixa de mensagens."""
+    """Garante a montagem correta da URL para a caixa de mensagens, corrigindo Quackr e SMS-Man."""
     if not href or href == "#" or "javascript" in href:
         return None
         
@@ -44,12 +46,12 @@ def construir_link_direto(base_url, href, numero_limpo):
     
     if len(digitos) >= 7 and (digitos[-7:] in url_completa or digitos in url_completa):
         return url_completa
-    elif any(x in href.lower() for x in ['number', 'num', 'sms', 'receive', 'phone', 'free-numbers']) and len(href) > 5:
+    elif any(x in href.lower() for x in ['number', 'num', 'sms', 'receive', 'phone', 'free-numbers', 'temporary-numbers']) and len(href) > 3:
         return url_completa
-    return None
+    return url_completa
 
 async def configurar_contexto_anti_cloudflare(browser):
-    """Cria um contexto emulando um dispositivo móvel (Android) para burlar proteções Anti-bot e Cloudflare."""
+    """Cria contexto emulando dispositivo móvel Android para bypass de verificações."""
     context = await browser.new_context(
         user_agent="Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36",
         viewport={"width": 412, "height": 915},
@@ -73,7 +75,6 @@ async def configurar_contexto_anti_cloudflare(browser):
         }
     )
     
-    # Injeta scripts para ocultar automação do navegador
     await context.add_init_script("""
         Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         window.navigator.chrome = { runtime: {} };
@@ -83,18 +84,14 @@ async def configurar_contexto_anti_cloudflare(browser):
     return context
 
 async def raspar_quackr(page, base_url):
-    """Varre o Quackr PT lidando com paginação e carregamento dinâmico (com scroll mobile)."""
+    """Captura os números do Quackr garantindo a extração do link direto."""
     numeros = []
     for pagina in range(1, 4):
         url_pag = f"{base_url}?page={pagina}" if pagina > 1 else base_url
         try:
             await page.goto(url_pag, timeout=30000, wait_until="domcontentloaded")
-            
-            # Simula scroll no ecrã para carregar listas dinâmicas em mobile
             await page.mouse.wheel(0, 500)
             await page.wait_for_timeout(1500)
-            await page.mouse.wheel(0, -200)
-            await page.wait_for_timeout(1000)
             
             links = await page.locator("a").all()
             for link in links:
@@ -103,7 +100,7 @@ async def raspar_quackr(page, base_url):
                     txt = await link.inner_text()
                     num_valido = extrair_numero_limpo(txt) or extrair_numero_limpo(href)
                     if num_valido:
-                        link_direto = construir_link_direto(base_url, href, num_valido)
+                        link_direto = construir_link_direto(base_url, href, num_valido) or urljoin(base_url, href)
                         if link_direto and not any(n['numero'] == num_valido for n in numeros):
                             numeros.append({'numero': num_valido, 'link': link_direto, 'fonte': 'Quackr PT'})
                 except Exception:
@@ -113,16 +110,14 @@ async def raspar_quackr(page, base_url):
     return numeros
 
 async def raspar_smsman(page, base_url):
-    """Varre o SMS-Man Grátis com foco em cartões e tabelas no layout mobile."""
+    """Captura os números do SMS-Man contornando o carregamento dinâmico via DOM."""
     numeros = []
     try:
         await page.goto(base_url, timeout=30000, wait_until="domcontentloaded")
-        
-        # Simula scroll para carregar todos os elementos invisíveis na primeira dobra
-        await page.mouse.wheel(0, 600)
+        await page.mouse.wheel(0, 800)
         await page.wait_for_timeout(2000)
         
-        elementos = await page.locator("a, div, td, span").all()
+        elementos = await page.locator("a[href*='free-numbers'], div.card, div, td, span").all()
         for elem in elementos:
             try:
                 txt = await elem.inner_text()
@@ -134,12 +129,12 @@ async def raspar_smsman(page, base_url):
                         numeros.append({'numero': num_valido, 'link': link_direto, 'fonte': 'SMS-Man Gratis'})
             except Exception:
                 continue
-    except Exception as e:
-        print(f"  ├─ ⚠️ Erro no SMS-Man: {e}")
+    except Exception:
+        pass
     return numeros
 
 async def processar_fonte(fonte, browser, semaphore):
-    """Executa a raspagem de cada site com controle de concorrência."""
+    """Executa a raspagem com semáforo de alta concorrência."""
     async with semaphore:
         context = await configurar_contexto_anti_cloudflare(browser)
         page = await context.new_page()
@@ -153,7 +148,7 @@ async def processar_fonte(fonte, browser, semaphore):
             else:
                 await page.goto(fonte["url"], timeout=25000, wait_until="domcontentloaded")
                 await page.mouse.wheel(0, 400)
-                await page.wait_for_timeout(2000)
+                await page.wait_for_timeout(1500)
                 
                 links = await page.locator("a").all()
                 for link in links:
@@ -168,64 +163,95 @@ async def processar_fonte(fonte, browser, semaphore):
                     except Exception:
                         continue
         except Exception as e:
-            print(f"  ├─ ⚠️ {fonte['nome']}: Erro ao carregar ({e})")
+            print(f"  ├─ ⚠️ {fonte['nome']}: Erro de carregamento ({e})")
         finally:
             await context.close()
             
         print(f"  ├─ {fonte['nome']}: {len(numeros_encontrados)} número(s) localizado(s)")
         return numeros_encontrados
 
-async def analisar_historico_numero(item, browser, semaphore):
-    """Verifica se o número já recebeu códigos do Google/YouTube."""
+# 🤖 ROBÔS TIPO A: 7 Trabalhadores dedicados à Verificação de Canal YouTube
+async def analisar_historico_youtube(item, browser, semaphore):
     async with semaphore:
         context = await configurar_contexto_anti_cloudflare(browser)
         page = await context.new_page()
-        
         try:
             await page.goto(item['link'], timeout=20000, wait_until="domcontentloaded")
-            await page.wait_for_timeout(1500)
+            await page.wait_for_timeout(1000)
             
-            corpo_texto = await page.inner_text("body")
-            texto_lower = corpo_texto.lower()
+            corpo_texto = (await page.inner_text("body")).lower()
+            mencoes_yt = corpo_texto.count('youtube')
+            codigos_yt = len(re.findall(r'\byoutube\b.*\b\d{6}\b', corpo_texto))
             
-            mencoes = texto_lower.count('youtube') + texto_lower.count('google') + texto_lower.count('gmail')
-            codigos_g = len(re.findall(r'\bg-\d{5,6}\b', texto_lower))
-            
-            item['usos_google'] = max(mencoes, codigos_g)
+            item['usos_youtube'] = max(mencoes_yt, codigos_yt)
         except Exception:
-            item['usos_google'] = 0
+            item['usos_youtube'] = 0
         finally:
             await context.close()
-            
         return item
 
-def exibir_relatorio(aprovados):
+# 🤖 ROBÔS TIPO B: 3 Trabalhadores dedicados à Criação de Conta Google / Gmail
+async def analisar_historico_google_conta(item, browser, semaphore):
+    async with semaphore:
+        context = await configurar_contexto_anti_cloudflare(browser)
+        page = await context.new_page()
+        try:
+            await page.goto(item['link'], timeout=20000, wait_until="domcontentloaded")
+            await page.wait_for_timeout(1000)
+            
+            corpo_texto = (await page.inner_text("body")).lower()
+            mencoes_g = corpo_texto.count('google') + corpo_texto.count('gmail')
+            codigos_g = len(re.findall(r'\bg-\d{5,6}\b', corpo_texto))
+            
+            item['usos_google_conta'] = max(mencoes_g, codigos_g)
+        except Exception:
+            item['usos_google_conta'] = 0
+        finally:
+            await context.close()
+        return item
+
+def exibir_relatorio(aprovados_yt, aprovados_google):
     print("\n" + "="*70)
-    print("🚀 RELATÓRIO FINAL: NÚMEROS VÁLIDOS PARA YOUTUBE (0/2 OU 1/2 USOS)")
+    print("🚀 RELATÓRIO FINAL: NÚMEROS APROVADOS (SISTEMA DE 10 ROBÔS)")
     print("="*70)
 
-    if aprovados:
-        for i, item in enumerate(aprovados, 1):
-            usos = item['usos_google']
-            status = "🟢 [VIRGEM - 0/2 USOS]" if usos == 0 else "🟡 [1 USO DETETADO - 1 VAGA RESTANTE]"
-            
+    print("\n🔴 [GRUPO 1: VERIFICAÇÃO DE CANAL YOUTUBE - 7 ROBÔS TRABALHANDO]")
+    if aprovados_yt:
+        for i, item in enumerate(aprovados_yt, 1):
+            usos = item['usos_youtube']
+            status = "🟢 [VIRGEM - 0 USOS YOUTUBE]" if usos == 0 else "🟡 [1 USO YOUTUBE DETETADO]"
             print(f"{i}. 📱 {item['numero']} {status}")
             print(f"   🌐 Fonte: {item['fonte']}")
-            print(f"   📊 Menções/Códigos detetados: {usos}")
             print(f"   🔗 Link Direto do SMS: {item['link']}")
             print("-" * 70)
     else:
-        print("\n❌ NENHUM NÚMERO DISPONÍVEL ENCONTRADO NESTA VARREDURA.")
+        print("   ❌ Nenhum número virgem para YouTube localizado nesta rodada.")
+
+    print("\n🔵 [GRUPO 2: CRIAÇÃO DE CONTA GOOGLE / GMAIL - 3 ROBÔS TRABALHANDO]")
+    if aprovados_google:
+        for i, item in enumerate(aprovados_google, 1):
+            usos = item['usos_google_conta']
+            status = "🟢 [VIRGEM - 0 USOS GOOGLE]" if usos == 0 else "🟡 [1 USO GOOGLE DETETADO]"
+            print(f"{i}. 📱 {item['numero']} {status}")
+            print(f"   🌐 Fonte: {item['fonte']}")
+            print(f"   🔗 Link Direto do SMS: {item['link']}")
+            print("-" * 70)
+    else:
+        print("   ❌ Nenhum número virgem para criar conta Google localizado nesta rodada.")
 
 async def main():
-    print("\n⚡ [BOT YOUTUBE BLINDADO v9] Iniciando varredura Mobile com bypass Anti-Cloudflare...")
+    print("\n⚡ [BOT YOUTUBE & GOOGLE MULTI-ROBÔ v10] Iniciando com 10 Workers paralelos...")
     
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        semaphore = asyncio.Semaphore(3)
         
-        print("\n🌐 Fase 1: Coletando números em paralelo...")
-        tasks_fontes = [processar_fonte(f, browser, semaphore) for f in FONTES_SMS]
+        # Configuração da infraestrutura de 10 Robôs em paralelo
+        semaphore_coleta = asyncio.Semaphore(10)
+        semaphore_yt = asyncio.Semaphore(7)       # 7 Robôs dedicados ao YouTube
+        semaphore_google = asyncio.Semaphore(3)   # 3 Robôs dedicados a Criar Conta Google
+        
+        print("\n🌐 Fase 1: Coletando números nas 10 fontes de SMS...")
+        tasks_fontes = [processar_fonte(f, browser, semaphore_coleta) for f in FONTES_SMS]
         resultados = await asyncio.gather(*tasks_fontes)
         
         todos_candidatos = []
@@ -234,19 +260,29 @@ async def main():
                 if not any(c['numero'] == item['numero'] for c in todos_candidatos):
                     todos_candidatos.append(item)
                     
-        print(f"\n🔍 Fase 2: {len(todos_candidatos)} candidato(s) recolhido(s). Analisando caixas de SMS...")
+        print(f"\n🔍 Fase 2: {len(todos_candidatos)} candidatos reunidos. Processando com os 10 robôs em paralelo...")
         
         if todos_candidatos:
-            tasks_analise = [analisar_historico_numero(c, browser, semaphore) for c in todos_candidatos]
-            candidatos_analisados = await asyncio.gather(*tasks_analise)
+            # Separação das tarefas entre as 2 equipes de robôs
+            tasks_yt = [analisar_historico_youtube(dict(c), browser, semaphore_yt) for c in todos_candidatos]
+            tasks_google = [analisar_historico_google_conta(dict(c), browser, semaphore_google) for c in todos_candidatos]
             
-            aprovados = [item for item in candidatos_analisados if item['usos_google'] <= 1]
-            aprovados.sort(key=lambda x: x['usos_google'])
-            exibir_relatorio(aprovados)
+            res_yt, res_google = await asyncio.gather(
+                asyncio.gather(*tasks_yt),
+                asyncio.gather(*tasks_google)
+            )
+            
+            aprovados_yt = [item for item in res_yt if item['usos_youtube'] <= 1]
+            aprovados_yt.sort(key=lambda x: x['usos_youtube'])
+            
+            aprovados_google = [item for item in res_google if item['usos_google_conta'] <= 1]
+            aprovados_google.sort(key=lambda x: x['usos_google_conta'])
+            
+            exibir_relatorio(aprovados_yt, aprovados_google)
         else:
-            exibir_relatorio([])
+            exibir_relatorio([], [])
             
         await browser.close()
 
 if __name__ == "__main__":
-    asyncio.main() if hasattr(asyncio, 'main') else asyncio.run(main())
+    asyncio.run(main())
