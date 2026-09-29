@@ -8,9 +8,10 @@ PREFIXOS_PRIORITARIOS = ('+358', '+1', '+351')
 PREFIXOS_ACEITOS = ('+1', '+351', '+358', '+44', '+33', '+31', '+49')
 
 FONTES_SMS = [
-    {"nome": "Quackr PT P1", "url": "https://quackr.io/pt/temporary-numbers", "tipo": "padrao"},
-    {"nome": "Quackr PT P2", "url": "https://quackr.io/pt/temporary-numbers?page=2", "tipo": "padrao"},
-    {"nome": "SMS-Man Gratis", "url": "https://sms-man.com/pt/free-numbers", "tipo": "padrao"},
+    {"nome": "Quackr PT P1", "url": "https://quackr.io/pt/temporary-numbers", "tipo": "quackr"},
+    {"nome": "Quackr Global", "url": "https://quackr.io/temporary-numbers", "tipo": "quackr"},
+    {"nome": "SMS-Man Gratis PT", "url": "https://sms-man.com/pt/free-numbers", "tipo": "smsman"},
+    {"nome": "SMS-Man Gratis EN", "url": "https://sms-man.com/free-numbers", "tipo": "smsman"},
     {"nome": "Receive-SMSS", "url": "https://receive-smss.com/", "tipo": "padrao"},
     {"nome": "SMSToMe", "url": "https://smstome.com/country/usa", "tipo": "padrao"},
     {"nome": "AnonymSMS", "url": "https://anonymsms.com/", "tipo": "padrao"},
@@ -22,71 +23,80 @@ FONTES_SMS = [
 ]
 
 def extrair_numero_inteligente(texto, href=""):
-    """Identifica o número e seu país combinando o texto visível e o link da página."""
-    combo = f"{texto} {href}".lower()
-    limpo = re.sub(r'[^\d+]', '', combo)
-    
-    com_mais = re.findall(r'\+\d{10,15}', limpo)
-    for num in com_mais:
-        if num.startswith('+41'):
-            continue
+    """
+    Extrai o número de telefone de forma precisa e limpa sem concatenar strings 
+    que causam duplicidade de dígitos no final.
+    """
+    # 1. Procura no texto visível primeiro
+    num_texto = re.findall(r'\+\d{10,15}', texto)
+    for num in num_texto:
         if any(num.startswith(p) for p in PREFIXOS_ACEITOS):
             return num
 
-    digitos_lista = re.findall(r'\b\d{10,15}\b', combo)
-    for dig in digitos_lista:
-        if any(k in combo for k in ['finland', 'finlandia']):
-            cand = '+358' + dig if not dig.startswith('358') else '+' + dig
-        elif any(k in combo for k in ['usa', 'united-states', 'us', 'america']):
-            cand = '+1' + dig if not dig.startswith('1') else '+' + dig
-        elif any(k in combo for k in ['portugal', 'pt']):
-            cand = '+351' + dig if not dig.startswith('351') else '+' + dig
-        elif any(k in combo for k in ['uk', 'united-kingdom', 'gb', 'england']):
-            cand = '+44' + dig if not dig.startswith('44') else '+' + dig
-        elif any(k in combo for k in ['france', 'francia', 'fr']):
-            cand = '+33' + dig if not dig.startswith('33') else '+' + dig
-        elif any(k in combo for k in ['netherlands', 'holland', 'holanda', 'nl']):
-            cand = '+31' + dig if not dig.startswith('31') else '+' + dig
-        elif any(k in combo for k in ['germany', 'alemanha', 'de']):
-            cand = '+49' + dig if not dig.startswith('49') else '+' + dig
-        else:
-            cand = '+' + dig
+    # 2. Procura no href se o texto não tiver o '+'
+    num_href = re.findall(r'\+\d{10,15}', href)
+    for num in num_href:
+        if any(num.startswith(p) for p in PREFIXOS_ACEITOS):
+            return num
 
-        if cand.startswith('+41'):
-            continue
-        if any(cand.startswith(p) for p in PREFIXOS_ACEITOS) and 11 <= len(cand) <= 16:
-            return cand
-            
+    # 3. Procura sequências de dígitos no texto e no href separadamente
+    for alvo in [texto, href]:
+        digitos_encontrados = re.findall(r'\b\d{10,15}\b', alvo)
+        for dig in digitos_encontrados:
+            texto_lc = alvo.lower()
+            if any(k in texto_lc for k in ['finland', 'finlandia']):
+                cand = '+358' + dig if not dig.startswith('358') else '+' + dig
+            elif any(k in texto_lc for k in ['usa', 'united-states', 'us', 'america', 'estados-unidos']):
+                cand = '+1' + dig if not dig.startswith('1') else '+' + dig
+            elif any(k in texto_lc for k in ['portugal', 'pt']):
+                cand = '+351' + dig if not dig.startswith('351') else '+' + dig
+            elif any(k in texto_lc for k in ['uk', 'united-kingdom', 'gb', 'england']):
+                cand = '+44' + dig if not dig.startswith('44') else '+' + dig
+            elif any(k in texto_lc for k in ['france', 'francia', 'fr']):
+                cand = '+33' + dig if not dig.startswith('33') else '+' + dig
+            elif any(k in texto_lc for k in ['netherlands', 'holland', 'holanda', 'nl']):
+                cand = '+31' + dig if not dig.startswith('31') else '+' + dig
+            elif any(k in texto_lc for k in ['germany', 'alemanha', 'de']):
+                cand = '+49' + dig if not dig.startswith('49') else '+' + dig
+            else:
+                cand = '+' + dig
+
+            if cand.startswith('+41'):
+                continue
+            if any(cand.startswith(p) for p in PREFIXOS_ACEITOS) and 11 <= len(cand) <= 16:
+                return cand
+
     return None
 
 async def configurar_contexto_anti_cloudflare(browser):
-    """Emula dispositivo móvel Android e reduz carregamentos desnecessários."""
+    """Emula um navegador real com suporte adequado a SPAs (React/Vue/Nuxt)."""
     context = await browser.new_context(
-        user_agent="Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36",
-        viewport={"width": 412, "height": 915},
-        is_mobile=True,
-        has_touch=True,
+        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        viewport={"width": 1280, "height": 800},
         locale="pt-BR",
         timezone_id="America/Sao_Paulo"
     )
-    await context.route("**/*.{png,jpg,jpeg,gif,webp,svg,mp4,mp3,woff,woff2,ttf,otf}", lambda route: route.abort())
+    # Cancela apenas mídias pesadas para não interromper a renderização do JS
+    await context.route("**/*.{png,jpg,jpeg,gif,webp,svg,mp4,mp3}", lambda route: route.abort())
     return context
 
 async def processar_fonte(fonte, browser, semaphore):
-    """Filtra links diretos e elimina URLs generalistas ou vazias."""
+    """Extrai números de várias fontes garantindo links diretos e caixas válidas."""
     async with semaphore:
         context = await configurar_contexto_anti_cloudflare(browser)
         page = await context.new_page()
         numeros_encontrados = []
         
         try:
-            await page.goto(fonte["url"], timeout=22000, wait_until="domcontentloaded")
-            await page.wait_for_timeout(1500)
-            await page.evaluate("window.scrollBy(0, 1200)")
-            await page.wait_for_timeout(800)
+            await page.goto(fonte["url"], timeout=30000, wait_until="domcontentloaded")
+            await page.wait_for_timeout(2000)
+            
+            # Rolagem para carregar conteúdos dinâmicos
+            await page.evaluate("window.scrollBy(0, 1000)")
+            await page.wait_for_timeout(1000)
             
             elementos_dom = await page.evaluate('''() => {
-                const seletores = 'a, div.number-item, div.card, tr, .col-md-4, .col-sm-6, .col-12';
+                const seletores = 'a, .number-card, .card, tr, .col-md-4, .col-sm-6, .col-12, .free-number-card, [class*="number"]';
                 const itens = [];
                 document.querySelectorAll(seletores).forEach(el => {
                     const a = el.tagName === 'A' ? el : el.querySelector('a');
@@ -109,7 +119,6 @@ async def processar_fonte(fonte, browser, semaphore):
                 if num_valido and href and href not in ['#', '/', '']:
                     link_direto = urljoin(fonte["url"], href)
                     
-                    # Ignora se o link gerado for exatamente a URL da home do site
                     if link_direto.rstrip('/') == base_url_limpa:
                         continue
                         
@@ -128,25 +137,46 @@ async def processar_fonte(fonte, browser, semaphore):
         return numeros_encontrados
 
 async def extrair_dados_caixa_sms(page):
-    """Lê todas as mensagens da caixa do número com rolagem para garimpar históricos."""
+    """Lê todas as mensagens da caixa e verifica se o carregamento foi bem sucedido."""
     try:
+        await page.wait_for_timeout(2500)
         await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
         await page.wait_for_timeout(1000)
         
-        conteudo = await page.evaluate('''() => {
-            const seletores = ['table', '.messages', '.sms-list', '.messages-list', '.list-group', 'article', 'main', '.number-messages', '.chat-box'];
+        resultado = await page.evaluate('''() => {
+            const seletores = [
+                'table', '.messages', '.sms-list', '.messages-list', 
+                '.list-group', 'article', 'main', '.number-messages', 
+                '.chat-box', '.sms-card', '.table-responsive', 'tbody', '.msg-item'
+            ];
             let acumulado = '';
+            let contadorMensagens = 0;
+
             for (const sel of seletores) {
                 const elems = document.querySelectorAll(sel);
                 elems.forEach(el => {
-                    if (el.innerText && el.innerText.length > 10) {
-                        acumulado += ' ' + el.innerText;
+                    const txt = el.innerText || el.textContent || '';
+                    if (txt.length > 10) {
+                        acumulado += ' ' + txt;
+                        contadorMensagens++;
                     }
                 });
             }
-            return acumulado.length > 20 ? acumulado : document.body.innerText;
+
+            if (!acumulado || acumulado.trim().length < 30) {
+                acumulado = document.body.innerText || '';
+            }
+
+            return {
+                texto: acumulado,
+                tamanho: acumulado.length
+            };
         }''')
-        texto_lc = conteudo.lower()
+        
+        texto_lc = resultado['texto'].lower()
+        
+        # Garante que a caixa foi lida com sucesso (evita falsos positivos por falha de renderização)
+        sucesso_leitura = resultado['tamanho'] > 60
         
         termos_antigos = [
             'year ago', 'years ago', 'month ago', 'months ago',
@@ -156,58 +186,89 @@ async def extrair_dados_caixa_sms(page):
         ]
         eh_antigo = any(termo in texto_lc for termo in termos_antigos)
         
-        return texto_lc, eh_antigo
+        return texto_lc, sucesso_leitura, eh_antigo
     except Exception:
-        return "", True
+        return "", False, True
 
 async def analisar_historico_youtube(item, browser, semaphore):
-    """Verifica e contabiliza qualquer registro de uso do YouTube/Google."""
+    """Analisa rigorosamente se o número possui QUALQUER registro de uso para YouTube/Google."""
     async with semaphore:
         context = await configurar_contexto_anti_cloudflare(browser)
         page = await context.new_page()
         item['fossil'] = False
         item['usos_youtube'] = 0
+        item['leitura_ok'] = False
+        
         try:
-            await page.goto(item['link'], timeout=18000, wait_until="domcontentloaded")
-            await page.wait_for_timeout(800)
+            await page.goto(item['link'], timeout=25000, wait_until="domcontentloaded")
+            conteudo_caixa, sucesso_leitura, eh_antigo = await extrair_dados_caixa_sms(page)
             
-            conteudo_caixa, eh_antigo = await extrair_dados_caixa_sms(page)
             item['fossil'] = eh_antigo
+            item['leitura_ok'] = sucesso_leitura
             
-            padrao_yt = r'(?:youtube|yt|g-|google).{0,50}(?:code|código|verific|confirm|pin|\d{5,6})'
-            matches = re.findall(padrao_yt, conteudo_caixa, flags=re.IGNORECASE)
-            
-            item['usos_youtube'] = len(matches)
+            if not sucesso_leitura:
+                # SE NÃO CONSEGUIU LER A CAIXA DE SMS, DESCARTE INCONDICIONALMENTE!
+                item['usos_youtube'] = 999 
+            else:
+                # Procura qualquer código, palavra-chave ou menção ao Google/YouTube
+                padroes = [
+                    r'\bg-\d{5,6}\b',
+                    r'youtube',
+                    r'google',
+                    r'gmail',
+                    r'yt\b'
+                ]
+                
+                total_usos = 0
+                for padrao in padroes:
+                    matches = re.findall(padrao, conteudo_caixa, flags=re.IGNORECASE)
+                    total_usos += len(matches)
+                
+                item['usos_youtube'] = total_usos
         except Exception:
-            # Em caso de falha de carregamento, assume USADO para evitar falsos positivos
-            item['usos_youtube'] = 99 
+            item['usos_youtube'] = 999
             item['fossil'] = True
+            item['leitura_ok'] = False
         finally:
             await context.close()
         return item
 
 async def analisar_historico_google_conta(item, browser, semaphore):
-    """Verifica e contabiliza qualquer registro de uso de criação de Conta Google/Gmail."""
+    """Analisa se o número foi utilizado para verificação de Conta Google / Gmail."""
     async with semaphore:
         context = await configurar_contexto_anti_cloudflare(browser)
         page = await context.new_page()
         item['fossil'] = False
         item['usos_google_conta'] = 0
+        item['leitura_ok'] = False
+        
         try:
-            await page.goto(item['link'], timeout=18000, wait_until="domcontentloaded")
-            await page.wait_for_timeout(800)
+            await page.goto(item['link'], timeout=25000, wait_until="domcontentloaded")
+            conteudo_caixa, sucesso_leitura, eh_antigo = await extrair_dados_caixa_sms(page)
             
-            conteudo_caixa, eh_antigo = await extrair_dados_caixa_sms(page)
             item['fossil'] = eh_antigo
+            item['leitura_ok'] = sucesso_leitura
             
-            padrao_google = r'g-\d{5,6}|(?:google|gmail|g-account).{0,50}(?:code|código|verific|confirm|pin|\d{5,6})'
-            matches = re.findall(padrao_google, conteudo_caixa, flags=re.IGNORECASE)
-            
-            item['usos_google_conta'] = len(matches)
+            if not sucesso_leitura:
+                item['usos_google_conta'] = 999
+            else:
+                padroes = [
+                    r'\bg-\d{5,6}\b',
+                    r'google',
+                    r'gmail',
+                    r'g-account'
+                ]
+                
+                total_usos = 0
+                for padrao in padroes:
+                    matches = re.findall(padrao, conteudo_caixa, flags=re.IGNORECASE)
+                    total_usos += len(matches)
+                
+                item['usos_google_conta'] = total_usos
         except Exception:
-            # Em caso de falha de carregamento, assume USADO para evitar falsos positivos
-            item['usos_google_conta'] = 99
+            item['usos_google_conta'] = 999
             item['fossil'] = True
+            item['leitura_ok'] = False
         finally:
             await context.close()
         return item
@@ -230,8 +291,13 @@ def exibir_relatorio(aprovados_yt, aprovados_google, total_coletados):
     print("🚀 RELATÓRIO FINAL: NÚMEROS APROVADOS (100% RECENTES & VIRGENS)")
     print("="*70)
 
-    # REQUISITO RÍGIDO: Apenas números com EXATAMENTE 0 usos e NÃO fósseis
-    yt_filtrados = [i for i in aprovados_yt if i.get('usos_youtube', 99) == 0 and not i.get('fossil', False)]
+    # REQUISITO RÍGIDO: Leitura da caixa confirmada, 0 usos e NÃO ser antigo/fóssil
+    yt_filtrados = [
+        i for i in aprovados_yt 
+        if i.get('usos_youtube', 999) == 0 
+        and i.get('leitura_ok', False) 
+        and not i.get('fossil', False)
+    ]
     yt_ordenados = ordenar_por_prioridade(yt_filtrados, 'usos_youtube')
     
     print("\n🔴 [GRUPO 1: VERIFICAÇÃO DE CANAL YOUTUBE]")
@@ -242,9 +308,14 @@ def exibir_relatorio(aprovados_yt, aprovados_google, total_coletados):
             print(f"   🔗 Link Direto: {item['link']}")
             print("-" * 70)
     else:
-        print("   ❌ TODOS OS NÚMEROS ENCONTRADOS JÁ FORAM USADOS OU ESTÃO INATIVOS PARA YOUTUBE.")
+        print("   ❌ TODOS OS NÚMEROS ENCONTRADOS JÁ FORAM USADOS OU NÃO PUDERAM TER A CAIXA VALIDADA.")
 
-    google_filtrados = [i for i in aprovados_google if i.get('usos_google_conta', 99) == 0 and not i.get('fossil', False)]
+    google_filtrados = [
+        i for i in aprovados_google 
+        if i.get('usos_google_conta', 999) == 0 
+        and i.get('leitura_ok', False) 
+        and not i.get('fossil', False)
+    ]
     google_ordenados = ordenar_por_prioridade(google_filtrados, 'usos_google_conta')
     
     print("\n🔵 [GRUPO 2: CRIAÇÃO DE CONTA GOOGLE / GMAIL]")
@@ -255,7 +326,7 @@ def exibir_relatorio(aprovados_yt, aprovados_google, total_coletados):
             print(f"   🔗 Link Direto: {item['link']}")
             print("-" * 70)
     else:
-        print("   ❌ TODOS OS NÚMEROS ENCONTRADOS JÁ FORAM USADOS OU ESTÃO INATIVOS PARA GOOGLE/GMAIL.")
+        print("   ❌ TODOS OS NÚMEROS ENCONTRADOS JÁ FORAM USADOS OU NÃO PUDERAM TER A CAIXA VALIDADA.")
 
     print(f"\n📊 Estatísticas da Varredura:")
     print(f"   • Total de candidatos localizados: {total_coletados}")
@@ -263,13 +334,13 @@ def exibir_relatorio(aprovados_yt, aprovados_google, total_coletados):
     print(f"   • Aprovados para Google/Gmail: {len(google_ordenados)}")
 
 async def main():
-    print("\n⚡ [BOT SMS VERIFICATION v15 - MÁXIMA PRECISÃO] Iniciando varredura profunda...")
+    print("\n⚡ [BOT SMS VERIFICATION v16 - PRECISÃO MÁXIMA] Iniciando varredura profunda...")
     
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         
-        semaphore_coleta = asyncio.Semaphore(6)
-        semaphore_analise = asyncio.Semaphore(8)
+        semaphore_coleta = asyncio.Semaphore(5)
+        semaphore_analise = asyncio.Semaphore(6)
         
         print("\n🌐 Fase 1: Extraindo números e validando links diretos de caixas...")
         tasks_fontes = [processar_fonte(f, browser, semaphore_coleta) for f in FONTES_SMS]
