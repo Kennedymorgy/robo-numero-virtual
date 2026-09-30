@@ -63,12 +63,22 @@ def extrair_numero_inteligente(texto, href=""):
 
 async def configurar_contexto_anti_cloudflare(browser):
     context = await browser.new_context(
-        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-        viewport={"width": 1280, "height": 800},
-        locale="pt-BR",
-        timezone_id="America/Sao_Paulo"
+        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+        viewport={"width": 1366, "height": 768},
+        locale="en-US",
+        extra_http_headers={
+            "Accept-Language": "en-US,en;q=0.9,pt-BR;q=0.8",
+            "Sec-Ch-Ua": '"Google Chrome";v="123", "Not:A-Brand";v="8", "Chromium";v="123"',
+            "Sec-Ch-Ua-Mobile": "?0",
+            "Sec-Ch-Ua-Platform": '"Windows"',
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Site": "none",
+            "Sec-Fetch-User": "?1",
+            "Upgrade-Insecure-Requests": "1"
+        }
     )
-    # Cancela imagens, fontes e mídia para acelerar o scraping
+    # Bloqueia recursos desnecessários para aumentar a velocidade e economizar banda
     await context.route("**/*.{png,jpg,jpeg,gif,webp,svg,mp4,mp3,woff,woff2,ttf,otf,css}", lambda route: route.abort())
     return context
 
@@ -79,8 +89,8 @@ async def processar_fonte(fonte, browser, semaphore):
         numeros_encontrados = []
         
         try:
-            await page.goto(fonte["url"], timeout=30000, wait_until="domcontentloaded")
-            await page.wait_for_timeout(1500)
+            await page.goto(fonte["url"], timeout=35000, wait_until="domcontentloaded")
+            await page.wait_for_timeout(2000)
             await page.evaluate("window.scrollBy(0, 1000)")
             
             elementos_dom = await page.evaluate('''() => {
@@ -116,7 +126,7 @@ async def processar_fonte(fonte, browser, semaphore):
                             'fonte': fonte['nome']
                         })
         except Exception:
-            print(f"  ├─ ⚠️ {fonte['nome']}: Timeout ou bloco de conexão")
+            print(f"  ├─ ⚠️ {fonte['nome']}: Timeout ou bloqueio de conexão")
         finally:
             await context.close()
             
@@ -125,8 +135,8 @@ async def processar_fonte(fonte, browser, semaphore):
 
 async def analisar_caixa_sms_completa(item, browser, semaphore):
     """
-    Analisa a caixa de SMS uma única vez para YouTube e Google/Gmail, 
-    verificando recência e atividade da caixa de entrada.
+    Analisa a caixa de SMS verificando requisições do Google/YouTube,
+    densidade de uso recente e padrões de data.
     """
     async with semaphore:
         context = await configurar_contexto_anti_cloudflare(browser)
@@ -137,6 +147,7 @@ async def analisar_caixa_sms_completa(item, browser, semaphore):
         item['usos_google'] = 0
         item['leitura_ok'] = False
         item['sem_atividade'] = False
+        item['alta_rotatividade'] = False
         
         try:
             await page.goto(item['link'], timeout=25000, wait_until="domcontentloaded")
@@ -149,7 +160,8 @@ async def analisar_caixa_sms_completa(item, browser, semaphore):
                     '.chat-box', '.sms-card', '.table-responsive', 'tbody', '.msg-item'
                 ];
                 let acumulado = '';
-                let totalMsgs = document.querySelectorAll('tr, .sms-card, .msg-item, .list-group-item').length;
+                let linhas = document.querySelectorAll('tr, .sms-card, .msg-item, .list-group-item');
+                let totalMsgs = linhas.length;
 
                 for (const sel of seletores) {
                     const elems = document.querySelectorAll(sel);
@@ -173,22 +185,33 @@ async def analisar_caixa_sms_completa(item, browser, semaphore):
             sucesso_leitura = resultado['tamanho'] > 60
             item['leitura_ok'] = sucesso_leitura
             
-            # Se a caixa de entrada tem menos de 2 mensagens, provável número abandonado/limpo
-            if resultado['totalMsgs'] < 2 and resultado['tamanho'] < 200:
+            # Se a caixa tiver pouquíssimas mensagens, pode indicar que acabou de ser limpa
+            if resultado['totalMsgs'] < 3 and resultado['tamanho'] < 250:
                 item['sem_atividade'] = True
 
+            # Se houver muitas mensagens recebidas juntas, é um número público muito concorrido
+            if resultado['totalMsgs'] > 40:
+                item['alta_rotatividade'] = True
+
+            # Padrões de datas antigas que indicam inatividade
             termos_antigos = [
                 'year ago', 'years ago', 'month ago', 'months ago',
                 'ano atrás', 'anos atrás', 'mês atrás', 'meses atrás',
-                'há 1 ano', 'há 2 anos', 'há 1 mês', '2021', '2022', '2023', '2024', '2025'
+                'há 1 ano', 'há 2 anos', 'há 1 mês'
             ]
             item['fossil'] = any(termo in conteudo_lc for termo in termos_antigos)
             
             if sucesso_leitura:
-                # Padrões para YouTube
-                padroes_yt = [r'\bg-\d{5,6}\b', r'youtube', r'yt\b']
-                # Padrões para Google/Gmail
-                padroes_google = [r'\bg-\d{5,6}\b', r'google', r'gmail', r'g-account', r'verificação google']
+                # Busca abrangente por códigos do Google/YouTube
+                padroes_yt = [
+                    r'\bg-\d{5,6}\b', r'youtube', r'yt code', r'código do youtube', 
+                    r'verificação do youtube', r'yt-verification'
+                ]
+                padroes_google = [
+                    r'\bg-\d{5,6}\b', r'google', r'gmail', r'g-account', 
+                    r'verificação google', r'google verification', r'código de verificação google',
+                    r'confirm\s*\d{5,6}'
+                ]
                 
                 item['usos_youtube'] = sum(len(re.findall(p, conteudo_lc, re.IGNORECASE)) for p in padroes_yt)
                 item['usos_google'] = sum(len(re.findall(p, conteudo_lc, re.IGNORECASE)) for p in padroes_google)
@@ -223,12 +246,13 @@ def exibir_relatorio(analisados, total_coletados):
     print("🚀 RELATÓRIO FINAL: NÚMEROS APROVADOS (FILTRAGEM DE PRECISÃO)")
     print("="*70)
 
-    # Filtra números verdadeiramente funcionais
+    # Filtra números que estão ativos, recentes e com boa densidade
     validos = [
         i for i in analisados 
         if i.get('leitura_ok', False) 
         and not i.get('fossil', False)
         and not i.get('sem_atividade', False)
+        and not i.get('alta_rotatividade', False)
     ]
     
     yt_aprovados = [i for i in validos if i.get('usos_youtube', 999) == 0]
@@ -240,7 +264,7 @@ def exibir_relatorio(analisados, total_coletados):
     print("\n🔴 [GRUPO 1: VERIFICAÇÃO DE CANAL YOUTUBE]")
     if yt_ordenados:
         for i, item in enumerate(yt_ordenados, 1):
-            print(f"{i}. 📱 {item['numero']} 🟢 [MENSAGENS ATIVAS - 0 REGISTROS YT]")
+            print(f"{i}. 📱 {item['numero']} 🟢 [BAIXA CONCORRÊNCIA - 0 REGISTROS YT]")
             print(f"   🌐 Fonte: {item['fonte']}")
             print(f"   🔗 Link Direto: {item['link']}")
             print("-" * 70)
@@ -250,7 +274,7 @@ def exibir_relatorio(analisados, total_coletados):
     print("\n🔵 [GRUPO 2: CRIAÇÃO DE CONTA GOOGLE / GMAIL]")
     if google_ordenados:
         for i, item in enumerate(google_ordenados, 1):
-            print(f"{i}. 📱 {item['numero']} 🟢 [MENSAGENS ATIVAS - 0 REGISTROS GOOGLE]")
+            print(f"{i}. 📱 {item['numero']} 🟢 [BAIXA CONCORRÊNCIA - 0 REGISTROS GOOGLE]")
             print(f"   🌐 Fonte: {item['fonte']}")
             print(f"   🔗 Link Direto: {item['link']}")
             print("-" * 70)
@@ -264,13 +288,13 @@ def exibir_relatorio(analisados, total_coletados):
     print(f"   • Aprovados Google/Gmail: {len(google_ordenados)}")
 
 async def main():
-    print("\n⚡ [BOT SMS VERIFICATION v17 - ULTRA FAST & BULLETPROOF] Iniciando...")
+    print("\n⚡ [BOT SMS VERIFICATION v18 - ROBUST FILTER] Iniciando...")
     
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         
-        semaphore_coleta = asyncio.Semaphore(6)
-        semaphore_analise = asyncio.Semaphore(8)
+        semaphore_coleta = asyncio.Semaphore(5)
+        semaphore_analise = asyncio.Semaphore(6)
         
         print("\n🌐 Fase 1: Coletando links diretos de números...")
         tasks_fontes = [processar_fonte(f, browser, semaphore_coleta) for f in FONTES_SMS]
@@ -283,7 +307,7 @@ async def main():
                     todos_candidatos.append(item)
                     
         total_coletados = len(todos_candidatos)
-        print(f"\n🔍 Fase 2: {total_coletados} números únicos localizados. Analisando caixas em passo único...")
+        print(f"\n🔍 Fase 2: {total_coletados} números únicos localizados. Analisando caixas de entrada...")
         
         if todos_candidatos:
             tasks_analise = [analisar_caixa_sms_completa(c, browser, semaphore_analise) for c in todos_candidatos]
