@@ -4,21 +4,22 @@ on:
   workflow_dispatch:
     inputs:
       game_name:
-        description: 'Nome do Jogo (ex: FR Legends, 8 Ball Pool, Dragon Ball Z)'
+        description: 'Nome do Jogo (ex: FR Legends, GTA San Andreas, Dragon Ball Z)'
         required: true
-        default: 'FR Legends'
+        default: 'GTA San Andreas'
       game_version:
-        description: 'Versão/Detalhes [OPCIONAL] (ex: v0.4.8, v56.30.1, PT-BR)'
+        description: 'Versão/Detalhes [OPCIONAL] (ex: v0.4.9, PT-BR, Remastered)'
         required: false
         default: ''
       category:
-        description: 'Tipo de Conteúdo'
+        description: 'Plataforma / Tipo de Conteúdo'
         required: true
         type: choice
         options:
+          - 'pc'
           - 'android'
           - 'ppsspp'
-        default: 'android'
+        default: 'pc'
       language_mode:
         description: 'Idioma das Tags/Buscas'
         required: true
