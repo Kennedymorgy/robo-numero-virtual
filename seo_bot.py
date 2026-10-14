@@ -68,15 +68,14 @@ def buscar_autocomplete_yt(termo, lang="pt", country="BR"):
     return []
 
 # ==============================================================================
-# SISTEMA DE 6 BOTS DEDICADOS POR PLATAFORMA (ANDROID, PPSSPP, PC)
+# SISTEMA DE BOTS DEDICADOS POR PLATAFORMA (ANDROID, PPSSPP, PC)
 # ==============================================================================
 
 # --- PLATAFORMA 1: ANDROID ---
 def bot_1_minerador_android(jogo_clean, idioma_modo):
-    """BOT 1: Minera exclusivamente buscas reais de Android APK."""
     queries_pt = [
         f"{jogo_clean} mod apk", f"{jogo_clean} mod menu", f"{jogo_clean} dinheiro infinito",
-        f"{jogo_clean} mediafire", f"{jogo_clean} atualizado", f"como baixar {jogo_clean} mod"
+        f"{jogo_clean} mediafire", f"{jogo_clean} atualizado {ANO_ATUAL}", f"como baixar {jogo_clean} mod"
     ]
     queries_en = [
         f"{jogo_clean} mod apk", f"{jogo_clean} mod menu", f"{jogo_clean} unlimited money",
@@ -92,7 +91,6 @@ def bot_1_minerador_android(jogo_clean, idioma_modo):
     return resultados
 
 def bot_2_filtro_android(buscas_brutas, jogo_clean):
-    """BOT 2: Filtra e consolida tags estritas para Android."""
     frequencia = Counter()
     termo_map = {}
     for cand in buscas_brutas:
@@ -108,7 +106,6 @@ def bot_2_filtro_android(buscas_brutas, jogo_clean):
 
 # --- PLATAFORMA 2: PPSSPP ---
 def bot_3_minerador_ppsspp(jogo_clean, idioma_modo):
-    """BOT 3: Minera exclusivamente buscas reais de PPSSPP / PSP."""
     queries_pt = [
         f"{jogo_clean} ppsspp iso", f"{jogo_clean} psp mediafire", f"como baixar {jogo_clean} ppsspp",
         f"{jogo_clean} psp android", f"{jogo_clean} ppsspp save data", f"{jogo_clean} ppsspp texturas hd"
@@ -127,7 +124,6 @@ def bot_3_minerador_ppsspp(jogo_clean, idioma_modo):
     return resultados
 
 def bot_4_filtro_ppsspp(buscas_brutas, jogo_clean):
-    """BOT 4: Filtra e consolida tags estritas para PPSSPP."""
     frequencia = Counter()
     termo_map = {}
     for cand in buscas_brutas:
@@ -143,7 +139,6 @@ def bot_4_filtro_ppsspp(buscas_brutas, jogo_clean):
 
 # --- PLATAFORMA 3: PC ---
 def bot_5_minerador_pc(jogo_clean, idioma_modo):
-    """BOT 5: Minera exclusivamente buscas reais de Jogos para PC."""
     queries_pt = [
         f"{jogo_clean} pc fraco", f"{jogo_clean} como baixar", f"{jogo_clean} pc",
         f"{jogo_clean} download mediafire", f"{jogo_clean} gameplay pt br",
@@ -163,31 +158,27 @@ def bot_5_minerador_pc(jogo_clean, idioma_modo):
     return resultados
 
 def bot_6_filtro_pc(buscas_brutas, jogo_clean):
-    """BOT 6: Filtra e consolida tags estritas para PC (Elimina lixo de celular e consoles)."""
     frequencia = Counter()
     termo_map = {}
-    
-    # Bloqueia vazamento de pesquisas de celular em tags de PC
-    termos_bloqueados_pc = ['celular', 'mobile', 'apk', 'android', 'ps3', 'ps4', 'xbox', 'emulator']
+    termos_bloqueados_pc = [
+        'celular', 'mobile', 'apk', 'android', 'ps3', 'ps4', 'xbox', 
+        'ppsspp', 'psp', 'winlator', 'mobox', 'exagear', 'emulator'
+    ]
 
     for cand in buscas_brutas:
         c_clean = re.sub(r'[^\w\s\-\/]', '', cand).strip()
-        
-        # Atualiza ano
         for ano_antigo in range(2015, ANO_ATUAL):
             c_clean = re.sub(r'\b' + str(ano_antigo) + r'\b', str(ANO_ATUAL), c_clean, flags=re.IGNORECASE)
 
         c_lower = c_clean.lower()
-
         if len(c_clean) <= 3 or c_lower in LIXO_PLATAFORMAS_E_CANANIS:
             continue
-
         if any(b in c_lower for b in termos_bloqueados_pc):
             continue
 
         if any(p in c_lower for p in jogo_clean.lower().split()):
             pontos = 1
-            if any(k in c_lower for k in ['pc fraco', 'como baixar', 'download', 'requisitos', 'gameplay', 'low end']):
+            if any(k in c_lower for k in ['pc fraco', 'como baixar', 'download', 'requisitos', 'gameplay', 'low end', 'system requirements']):
                 pontos += 3
             frequencia[c_lower] += pontos
             if c_lower not in termo_map:
@@ -196,11 +187,63 @@ def bot_6_filtro_pc(buscas_brutas, jogo_clean):
     return termo_map, frequencia
 
 # ==============================================================================
+# BOT 7: GERADOR DE IDEIAS DE THUMBNAIL & GATILHOS MENTAIS (CTR TURBO)
+# ==============================================================================
+def bot_7_gerador_ctr_e_thumb(jogo_clean, categoria):
+    """BOT 7: Cria automaticamente gatilhos visuais e textos curtos para thumbnails de alto clique."""
+    
+    if categoria == "pc":
+        textos_thumb = [
+            "RODOU EM 2GB!",
+            "SEM PLACA DE VÍDEO!",
+            "100% LISO! 🔥",
+            "COMO RODAR EM PC FRACO"
+        ]
+        conceito_visual = (
+            f"Coloque uma print bonita da gameplay de {jogo_clean} no fundo. "
+            "No lado esquerdo, adicione um contador de '60 FPS' verde bem destacado "
+            "e um ícone de PC Fraco/Seta amarela apontando para as configurações no jogo."
+        )
+        hook_inicio = f"Se você tem um PC fraco sem placa de vídeo e achava que não ia rodar {jogo_clean}, fica comigo até o final desse vídeo!"
+        
+    elif categoria == "android":
+        textos_thumb = [
+            "TUDO DESBLOQUEADO!",
+            "DINHEIRO INFINITO! 💰",
+            "NOVA ATUALIZAÇÃO!",
+            "SEM KEY / DIRETO"
+        ]
+        conceito_visual = (
+            f"Print do menu de {jogo_clean} com moedas/gemas no máximo em destaque. "
+            "Adicione um selo verde escrito 'MÍDIAFIRE / LINK DIRETO' e um círculo vermelho "
+            "destacando as funções principais do mod."
+        )
+        hook_inicio = f"Fala pessoal! Saiu a nova versão atualizada de {jogo_clean} com tudo liberado e funcionando de primeira no Android."
+        
+    else:  # PPSSPP
+        textos_thumb = [
+            "60 FPS FIXO! ⚡",
+            "SAVE DATA 100%",
+            "TEXTURAS HD 🔥",
+            "LEVE & COMPACTO"
+        ]
+        conceito_visual = (
+            f"Gameplay em alta definição de {jogo_clean} com a logo do PPSSPP Gold em um dos cantos. "
+            "Adicione uma imagem do cartão de memória escrito 'SAVE DATA COMPLETO' e uma seta amarela."
+        )
+        hook_inicio = f"Hoje eu vou te mostrar a melhor configuração do PPSSPP para rodar {jogo_clean} em 60 FPS sem nenhuma travamento!"
+
+    return {
+        "textos_thumb": textos_thumb,
+        "conceito_visual": conceito_visual,
+        "hook_inicio": hook_inicio
+    }
+
+# ==============================================================================
 # PROCESSADOR GERAL & MOTOR DE MONTAGEM
 # ==============================================================================
 
 def extrair_titulos_reais_topo(jogo_clean, categoria):
-    """Extrai títulos reais do topo do YouTube com base na categoria exata."""
     if categoria == "pc":
         termo = f"{jogo_clean} pc fraco"
     elif categoria == "android":
@@ -210,7 +253,6 @@ def extrair_titulos_reais_topo(jogo_clean, categoria):
 
     url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(termo)}"
     titulos = []
-    
     try:
         res = requests.get(url, headers=HEADERS_DESKTOP, cookies=COOKIES_YT, timeout=8)
         if res.status_code == 200:
@@ -233,7 +275,6 @@ def extrair_titulos_reais_topo(jogo_clean, categoria):
     return titulos
 
 def montar_caixa_tags_500(termo_map, frequencia):
-    """Garante exatamente até 500 caracteres ordenados por relevância."""
     termos_ordenados = sorted(frequencia.keys(), key=lambda x: frequencia[x], reverse=True)
     tags_finais = []
     tamanho_total = 0
@@ -250,7 +291,6 @@ def montar_caixa_tags_500(termo_map, frequencia):
     return ", ".join(tags_finais)
 
 def gerar_descricao_seo(jogo_clean, versao, categoria, tags_caixa):
-    """Gera a descrição otimizada para o YouTube."""
     ver_str = f" {versao}" if versao else ""
     cat_label = "PC (PC Fraco / Otimizado)" if categoria == "pc" else ("Android Mod APK" if categoria == "android" else "PPSSPP / PSP ISO")
 
@@ -282,7 +322,13 @@ def gerar_descricao_seo(jogo_clean, versao, categoria, tags_caixa):
     desc.append(f"{tags_caixa}")
 
     clean_hash = re.sub(r'[^a-zA-Z0-9]', '', jogo_clean)
-    desc.append(f"\n📌 HASHTAGS:\n#{clean_hash} #{clean_hash}{categoria.upper()} #{clean_hash}Gameplay #Download #{ANO_ATUAL}")
+    
+    if categoria == "pc":
+        desc.append(f"\n📌 HASHTAGS:\n#{clean_hash} #{clean_hash}PC #{clean_hash}PCFraco #PCFraco #{ANO_ATUAL}")
+    elif categoria == "android":
+        desc.append(f"\n📌 HASHTAGS:\n#{clean_hash} #{clean_hash}Mod #ModApk #AndroidGames #{ANO_ATUAL}")
+    else:
+        desc.append(f"\n📌 HASHTAGS:\n#{clean_hash} #{clean_hash}PPSSPP #PPSSPP #PSP #AndroidGames #{ANO_ATUAL}")
 
     return "\n".join(desc)
 
@@ -292,15 +338,13 @@ def executar_gerador():
     categoria = os.getenv("CATEGORY", "pc").strip().lower()
     idioma_modo = os.getenv("LANGUAGE_MODE", "ambos").strip().lower()
 
-    # Formatação limpa do nome do jogo
     jogo_clean = re.sub(r'[\(\)]', '', jogo_raw).strip()
 
     print("=" * 80)
-    print(f"🤖 ROBÔ SEO YOUTUBE TURBO 5.0 (SISTEMA COM 6 BOTS): {jogo_clean.upper()} {versao}")
+    print(f"🤖 ROBÔ SEO YOUTUBE TURBO 7.0 (SISTEMA COM 7 BOTS + CTR): {jogo_clean.upper()} {versao}")
     print(f"📂 Categoria: {categoria.upper()} | Público Idioma: {idioma_modo.upper()}")
     print("=" * 80)
 
-    # Execução baseada na plataforma selecionada
     if categoria == "android":
         print("[+] Ativando BOTS 1 & 2 (Especialistas em Android APK)...")
         buscas = bot_1_minerador_android(jogo_clean, idioma_modo)
@@ -337,7 +381,18 @@ def executar_gerador():
     print("-" * 80)
     print(f"📊 Total de caracteres utilizados: {len(tags_500)}/500")
 
-    # 3. Descrição SEO
+    # 3. BOT 7 - Dicas Visuais e CTR para Thumbnail
+    ctr_data = bot_7_gerador_ctr_e_thumb(jogo_clean, categoria)
+    print("\n🖼️ DICAS DE THUMBNAIL & GATILHOS DE CLIQUE (CTR TURBO):")
+    print("-" * 80)
+    print("👉 Textos Curtos para usar na Capa:")
+    for txt in ctr_data["textos_thumb"]:
+        print(f"   • {txt}")
+    print(f"\n💡 Conceito Visual da Thumbnail:\n   {ctr_data['conceito_visual']}")
+    print(f"\n🎙️ Gatilho do Primeiro Segundo (Hook para Retenção):\n   \"{ctr_data['hook_inicio']}\"")
+    print("-" * 80)
+
+    # 4. Descrição SEO
     descricao = gerar_descricao_seo(jogo_clean, versao, categoria, tags_500)
     print("\n📝 DESCRIÇÃO COMPLETA PARA O YOUTUBE (BILINGUE + LINKS + HASHTAGS):")
     print("-" * 80)
