@@ -18,15 +18,14 @@ COOKIES_YT = {
     "SOCS": "CAI"
 }
 
-# Lixo de sistema, canais grandes irrelevantes para SEO direto e plataformas erradas
-LIXO_SISTEMA_E_PLATAFORMAS = {
+# Lixo de sistema, canais genéricos e consoles que gastam espaço das suas tags
+LIXO_PLATA FORMAS_E_CANANIS = {
     'vídeo', 'compartilhamento', 'celular com câmera', 'videofone', 'gratuito', 'envio',
     'video', 'sharing', 'camera phone', 'free', 'upload', 'youtube', 'yt', 'shorts',
-    'mobile', 'cell phone', 'phone', 'app', 'google', 'android', 'ios', 'menu', 'header',
-    'button', 'icon', 'search', 'player', 'zippy', 'a11y', 'country', 'masthead',
-    'logo', 'fyp', 'tiktok', 'viral', 'foryou', 'sub', 'subscribe', 'like', 'comment',
-    # Plataformas e Youtubers genéricos que gastam espaço das suas tags
-    'ps3', 'ps4', 'ps5', 'xbox 360', 'xbox one', 'xbox series', 'nintendo',
+    'mobile', 'cell phone', 'phone', 'app', 'google', 'menu', 'header', 'button', 'icon',
+    'search', 'player', 'zippy', 'a11y', 'country', 'masthead', 'logo', 'fyp', 'tiktok',
+    'viral', 'foryou', 'sub', 'subscribe', 'like', 'comment',
+    'ps3', 'ps4', 'ps5', 'xbox 360', 'xbox one', 'xbox series', 'nintendo', 'switch',
     'brksedu', 'alanzoka', 'gameplayrj', 'lipao', 'dazinho', 'combination'
 }
 
@@ -52,9 +51,8 @@ def limpar_titulo_anti_strike(titulo):
     return titulo_limpo.strip()
 
 def eh_hashtag_valida(ht_raw):
-    """Filtra apenas hashtags reais e de valor."""
     ht = ht_raw.lower().replace("#", "").strip()
-    if len(ht) < 2 or ht.isdigit() or ht in LIXO_SISTEMA_E_PLATAFORMAS or eh_hex_color(ht):
+    if len(ht) < 2 or ht.isdigit() or ht in LIXO_PLATA FORMAS_E_CANANIS or eh_hex_color(ht):
         return False
     return True
 
@@ -70,216 +68,178 @@ def buscar_autocomplete_yt(termo, lang="pt", country="BR"):
     return []
 
 # ==============================================================================
-# SISTEMA DE MINERAÇÃO E EXTRAÇÃO (PENTA-BOT 4.0 SUPER INTELIGENTE)
+# SISTEMA DE 6 BOTS DEDICADOS POR PLATAFORMA (ANDROIDE, PPSSPP, PC)
 # ==============================================================================
 
-def bot_1_minerador_topo(jogo_completo, categoria):
-    """BOT 1: Coleta os melhores títulos focando exatamente no termo digitado (ex: 'gta 5 lite')."""
-    if categoria == "pc":
-        termo_busca = f"{jogo_completo} pc fraco"
-    elif categoria == "android":
-        termo_busca = f"{jogo_completo} mod apk"
-    else:
-        termo_busca = f"{jogo_completo} ppsspp iso"
-
-    url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(termo_busca)}"
-
-    titulos = []
-    video_ids = []
-
-    try:
-        res = requests.get(url, headers=HEADERS_DESKTOP, cookies=COOKIES_YT, timeout=10)
-        if res.status_code == 200:
-            match = re.search(r'var ytInitialData\s*=\s*({.*?});</script>', res.text, re.DOTALL)
-            if not match:
-                match = re.search(r'window\["ytInitialData"\]\s*=\s*({.*?});', res.text, re.DOTALL)
-                
-            if match:
-                data = json.loads(match.group(1))
-                contents = data.get('contents', {}).get('twoColumnSearchResultsRenderer', {}).get('primaryContents', {}).get('sectionListRenderer', {}).get('contents', [])
-                
-                for section in contents:
-                    item_list = section.get('itemSectionRenderer', {}).get('contents', [])
-                    for item in item_list:
-                        if 'videoRenderer' in item:
-                            vr = item['videoRenderer']
-                            title = vr.get('title', {}).get('runs', [{}])[0].get('text', '')
-                            v_id = vr.get('videoId', '')
-                            
-                            if title and len(title) > 8 and title not in titulos:
-                                titulos.append(limpar_titulo_anti_strike(title))
-                                if v_id:
-                                    video_ids.append(v_id)
-                            if len(titulos) >= 10:
-                                break
-                    if len(titulos) >= 10:
-                        break
-    except Exception as e:
-        print(f"[-] Bot 1 Aviso: {e}")
-
-    mod_terms_titulos = []
-    for t in titulos:
-        m = re.findall(r'\b(lite|pc fraco|como baixar|download|ultra fraco|1gb ram|2gb ram|sem placa|requisitos|gameplay|pt br|mod)\b', t, re.IGNORECASE)
-        for item in m:
-            if item.lower() not in mod_terms_titulos:
-                mod_terms_titulos.append(item.lower())
-
-    return titulos, video_ids, mod_terms_titulos
-
-def bot_2_super_raspador_hashtags(video_ids):
-    """BOT 2: Raspador de hashtags reais da descrição dos concorrentes do topo."""
-    todas_hashtags_consolidadas = []
-    seen = set()
-
-    session = requests.Session()
-    session.headers.update(HEADERS_DESKTOP)
-
-    for v_id in video_ids[:8]:
-        try:
-            url = f"https://www.youtube.com/watch?v={v_id}"
-            res = session.get(url, cookies=COOKIES_YT, timeout=6)
-            if res.status_code == 200:
-                html = res.text
-                html_clean = html.replace('\\u0023', '#').replace('\u0023', '#').replace('\\u0026', '&').replace('&amp;', '&')
-
-                texto_alvo = ""
-                matches_json = re.findall(r'"text":"([^"]+)"', html_clean)
-                if matches_json:
-                    texto_alvo += " " + " ".join(matches_json)
-
-                desc_match = re.search(r'"shortDescription":"(.*?)","isCrawlable"', html_clean)
-                if desc_match:
-                    texto_alvo += " " + desc_match.group(1)
-
-                texto_formatado = re.sub(r'#', ' #', texto_alvo)
-                raw_hts = re.findall(r'#([a-zA-Z0-9_\u00C0-\u00FF]+)', texto_formatado)
-
-                for ht in raw_hts:
-                    if eh_hashtag_valida(ht):
-                        ht_formated = f"#{ht}"
-                        ht_lower = ht_formated.lower()
-                        if ht_lower not in seen:
-                            seen.add(ht_lower)
-                            todas_hashtags_consolidadas.append(ht_formated)
-        except Exception:
-            pass
-
-    return todas_hashtags_consolidadas[:12]
-
-def bot_3_autocomplete_inteligente(jogo_completo, categoria, idioma_modo, mod_terms_titulos):
-    """BOT 3: Gera buscas reais mantendo 100% da intenção do usuário (ex: 'gta 5 lite')."""
-    j_clean = re.sub(r'[^a-zA-Z0-9 ]', '', jogo_completo).strip()
-
-    if categoria == "pc":
-        base_queries_pt = [
-            f"{j_clean}", 
-            f"{j_clean} pc fraco", 
-            f"{j_clean} como baixar",
-            f"{j_clean} pc",
-            f"{j_clean} download mediafire",
-            f"{j_clean} gameplay pt br", 
-            f"{j_clean} requisitos minimos",
-            f"como rodar {j_clean} em pc fraco"
-        ]
-        base_queries_en = [
-            f"{j_clean} low end pc", 
-            f"{j_clean} pc download", 
-            f"how to run {j_clean} on low end pc",
-            f"{j_clean} system requirements", 
-            f"{j_clean} pc gameplay"
-        ]
-    elif categoria == "android":
-        base_queries_pt = [
-            f"{j_clean} mod apk", f"{j_clean} mod menu", f"{j_clean} dinheiro infinito",
-            f"{j_clean} mediafire", f"{j_clean} atualizado", f"como baixar {j_clean} mod"
-        ]
-        base_queries_en = [
-            f"{j_clean} mod apk", f"{j_clean} mod menu", f"{j_clean} unlimited money",
-            f"{j_clean} mediafire link", f"{j_clean} latest version"
-        ]
-    else:  # PPSSPP
-        base_queries_pt = [
-            f"{j_clean} ppsspp iso", f"{j_clean} psp mediafire", f"como baixar {j_clean} ppsspp",
-            f"{j_clean} psp android", f"{j_clean} ppsspp save data"
-        ]
-        base_queries_en = [
-            f"{j_clean} ppsspp iso download", f"{j_clean} psp mediafire", f"how to download {j_clean} ppsspp"
-        ]
-
-    for term in mod_terms_titulos:
-        base_queries_pt.append(f"{j_clean} {term}")
-
-    buscas = []
+# --- PLATAFORMA 1: ANDROID ---
+def bot_1_minerador_android(jogo_clean, idioma_modo):
+    """BOT 1: Minera exclusivamente buscas reais de Android APK."""
+    queries_pt = [
+        f"{jogo_clean} mod apk", f"{jogo_clean} mod menu", f"{jogo_clean} dinheiro infinito",
+        f"{jogo_clean} mediafire", f"{jogo_clean} atualizado", f"como baixar {jogo_clean} mod"
+    ]
+    queries_en = [
+        f"{jogo_clean} mod apk", f"{jogo_clean} mod menu", f"{jogo_clean} unlimited money",
+        f"{jogo_clean} mediafire link", f"{jogo_clean} latest version", f"{jogo_clean} gameplay android"
+    ]
+    resultados = []
     if idioma_modo in ["ambos", "pt_br"]:
-        for bq in base_queries_pt:
-            buscas.extend(buscar_autocomplete_yt(bq, "pt", "BR"))
+        for q in queries_pt:
+            resultados.extend(buscar_autocomplete_yt(q, "pt", "BR"))
     if idioma_modo in ["ambos", "ingles"]:
-        for bq in base_queries_en:
-            buscas.extend(buscar_autocomplete_yt(bq, "en", "US"))
+        for q in queries_en:
+            resultados.extend(buscar_autocomplete_yt(q, "en", "US"))
+    return resultados
 
-    return buscas
-
-def bot_4_filtro_e_cruzamento(buscas_bot3, video_ids, jogo_completo, categoria):
-    """BOT 4: Filtra lixo, remove concorrentes irrelevantes e cria a caixa exata de 500 caracteres."""
-    keywords_internas_videos = []
-    for v_id in video_ids[:6]:
-        try:
-            url = f"https://www.youtube.com/watch?v={v_id}"
-            res = requests.get(url, headers=HEADERS_DESKTOP, cookies=COOKIES_YT, timeout=5)
-            if res.status_code == 200:
-                kw_match = re.search(r'"keywords":\s*\[(.*?)\]', res.text)
-                if kw_match:
-                    kws = re.findall(r'"([^"]+)"', kw_match.group(1))
-                    keywords_internas_videos.extend(kws)
-        except Exception:
-            pass
-
-    todas_candidatas = buscas_bot3 + keywords_internas_videos
+def bot_2_filtro_android(buscas_brutas, jogo_clean):
+    """BOT 2: Filtra e consolida tags estritas para Android."""
     frequencia = Counter()
-    termo_limpo_map = {}
-
-    termo_foco_base = jogo_completo.lower()
-
-    for cand in todas_candidatas:
+    termo_map = {}
+    for cand in buscas_brutas:
         c_clean = re.sub(r'[^\w\s\-\/]', '', cand).strip()
+        c_lower = c_clean.lower()
+        if len(c_clean) <= 3 or c_lower in LIXO_PLATA FORMAS_E_CANANIS or "ppsspp" in c_lower or "pc " in c_lower:
+            continue
+        if any(p in c_lower for p in jogo_clean.lower().split()):
+            frequencia[c_lower] += 1
+            if c_lower not in termo_map:
+                termo_map[c_lower] = c_clean
+    return termo_map, frequencia
+
+# --- PLATAFORMA 2: PPSSPP ---
+def bot_3_minerador_ppsspp(jogo_clean, idioma_modo):
+    """BOT 3: Minera exclusivamente buscas reais de PPSSPP / PSP."""
+    queries_pt = [
+        f"{jogo_clean} ppsspp iso", f"{jogo_clean} psp mediafire", f"como baixar {jogo_clean} ppsspp",
+        f"{jogo_clean} psp android", f"{jogo_clean} ppsspp save data", f"{jogo_clean} ppsspp texturas hd"
+    ]
+    queries_en = [
+        f"{jogo_clean} ppsspp iso download", f"{jogo_clean} psp mediafire", f"how to download {jogo_clean} ppsspp",
+        f"{jogo_clean} ppsspp android", f"{jogo_clean} ppsspp best settings"
+    ]
+    resultados = []
+    if idioma_modo in ["ambos", "pt_br"]:
+        for q in queries_pt:
+            resultados.extend(buscar_autocomplete_yt(q, "pt", "BR"))
+    if idioma_modo in ["ambos", "ingles"]:
+        for q in queries_en:
+            resultados.extend(buscar_autocomplete_yt(q, "en", "US"))
+    return resultados
+
+def bot_4_filtro_ppsspp(buscas_brutas, jogo_clean):
+    """BOT 4: Filtra e consolida tags estritas para PPSSPP."""
+    frequencia = Counter()
+    termo_map = {}
+    for cand in buscas_brutas:
+        c_clean = re.sub(r'[^\w\s\-\/]', '', cand).strip()
+        c_lower = c_clean.lower()
+        if len(c_clean) <= 3 or c_lower in LIXO_PLATA FORMAS_E_CANANIS or "apk" in c_lower:
+            continue
+        if any(p in c_lower for p in jogo_clean.lower().split()):
+            frequencia[c_lower] += 1
+            if c_lower not in termo_map:
+                termo_map[c_lower] = c_clean
+    return termo_map, frequencia
+
+# --- PLATAFORMA 3: PC ---
+def bot_5_minerador_pc(jogo_clean, idioma_modo):
+    """BOT 5: Minera exclusivamente buscas reais de Jogos para PC."""
+    queries_pt = [
+        f"{jogo_clean} pc fraco", f"{jogo_clean} como baixar", f"{jogo_clean} pc",
+        f"{jogo_clean} download mediafire", f"{jogo_clean} gameplay pt br",
+        f"{jogo_clean} requisitos minimos", f"como rodar {jogo_clean} em pc fraco"
+    ]
+    queries_en = [
+        f"{jogo_clean} low end pc", f"{jogo_clean} pc download", f"how to run {jogo_clean} on low end pc",
+        f"{jogo_clean} system requirements", f"{jogo_clean} pc gameplay", f"{jogo_clean} full game pc"
+    ]
+    resultados = []
+    if idioma_modo in ["ambos", "pt_br"]:
+        for q in queries_pt:
+            resultados.extend(buscar_autocomplete_yt(q, "pt", "BR"))
+    if idioma_modo in ["ambos", "ingles"]:
+        for q in queries_en:
+            resultados.extend(buscar_autocomplete_yt(q, "en", "US"))
+    return resultados
+
+def bot_6_filtro_pc(buscas_brutas, jogo_clean):
+    """BOT 6: Filtra e consolida tags estritas para PC (Elimina lixo de celula e consoles)."""
+    frequencia = Counter()
+    termo_map = {}
+    
+    # Bloqueia vazamento de pesquisas de celular em tags de PC
+    termos_bloqueados_pc = ['celular', 'mobile', 'apk', 'android', 'ps3', 'ps4', 'xbox', 'emulator']
+
+    for cand in buscas_brutas:
+        c_clean = re.sub(r'[^\w\s\-\/]', '', cand).strip()
+        
+        # Atualiza ano
         for ano_antigo in range(2015, ANO_ATUAL):
             c_clean = re.sub(r'\b' + str(ano_antigo) + r'\b', str(ANO_ATUAL), c_clean, flags=re.IGNORECASE)
 
         c_lower = c_clean.lower()
 
-        if len(c_clean) <= 3 or c_lower in LIXO_SISTEMA_E_PLATAFORMAS or eh_hex_color(c_lower):
+        if len(c_clean) <= 3 or c_lower in LIXO_PLATA FORMAS_E_CANANIS:
             continue
 
-        # Garante relevância: A tag DEVE conter palavras chaves do jogo pesquisado
-        palavras_jogo = termo_foco_base.split()
-        if not any(p in c_lower for p in palavras_jogo if len(p) > 2):
+        if any(b in c_lower for b in termos_bloqueados_pc):
             continue
 
-        # Filtro estrito de categoria
-        if categoria == "android" and ("ppsspp" in c_lower or "pc " in c_lower):
-            continue
-        if categoria == "pc" and ("apk" in c_lower or "ppsspp" in c_lower or "android" in c_lower):
-            continue
+        if any(p in c_lower for p in jogo_clean.lower().split()):
+            pontos = 1
+            if any(k in c_lower for k in ['pc fraco', 'como baixar', 'download', 'requisitos', 'gameplay', 'low end']):
+                pontos += 3
+            frequencia[c_lower] += pontos
+            if c_lower not in termo_map:
+                termo_map[c_lower] = c_clean
 
-        pontos = 1
-        if cand in buscas_bot3 and cand in keywords_internas_videos:
-            pontos += 5
-        
-        # Super pontuação se tiver termos fortes de alta busca no YT
-        if any(k in c_lower for k in ['lite', 'pc fraco', 'como baixar', 'download', 'requisitos', 'mediafire', ' gameplay pt br']):
-            pontos += 4
+    return termo_map, frequencia
 
-        frequencia[c_lower] += pontos
-        if c_lower not in termo_limpo_map:
-            termo_limpo_map[c_lower] = c_clean
+# ==============================================================================
+# PROCESSADOR GERAL & MOTOR DE MONTAGEM
+# ==============================================================================
 
+def extrair_titulos_reais_topo(jogo_clean, categoria):
+    """Extrai títulos reais do topo do YouTube com base na categoria exata."""
+    if categoria == "pc":
+        termo = f"{jogo_clean} pc fraco"
+    elif categoria == "android":
+        termo = f"{jogo_clean} mod apk"
+    else:
+        termo = f"{jogo_clean} ppsspp iso"
+
+    url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(termo)}"
+    titulos = []
+    
+    try:
+        res = requests.get(url, headers=HEADERS_DESKTOP, cookies=COOKIES_YT, timeout=8)
+        if res.status_code == 200:
+            match = re.search(r'var ytInitialData\s*=\s*({.*?});</script>', res.text, re.DOTALL)
+            if match:
+                data = json.loads(match.group(1))
+                contents = data.get('contents', {}).get('twoColumnSearchResultsRenderer', {}).get('primaryContents', {}).get('sectionListRenderer', {}).get('contents', [])
+                for section in contents:
+                    item_list = section.get('itemSectionRenderer', {}).get('contents', [])
+                    for item in item_list:
+                        if 'videoRenderer' in item:
+                            title = item['videoRenderer'].get('title', {}).get('runs', [{}])[0].get('text', '')
+                            if title and len(title) > 8 and title not in titulos:
+                                titulos.append(limpar_titulo_anti_strike(title))
+                        if len(titulos) >= 4:
+                            break
+    except Exception:
+        pass
+
+    return titulos
+
+def montar_caixa_tags_500(termo_map, frequencia):
+    """Garante exatamente até 500 caracteres ordenados por relevância."""
     termos_ordenados = sorted(frequencia.keys(), key=lambda x: frequencia[x], reverse=True)
-
     tags_finais = []
     tamanho_total = 0
 
     for t_key in termos_ordenados:
-        t_orig = termo_limpo_map[t_key]
+        t_orig = termo_map[t_key]
         custo = len(t_orig) + 2 if tags_finais else len(t_orig)
         if tamanho_total + custo <= 500:
             tags_finais.append(t_orig)
@@ -289,33 +249,27 @@ def bot_4_filtro_e_cruzamento(buscas_bot3, video_ids, jogo_completo, categoria):
 
     return ", ".join(tags_finais)
 
-def bot_5_descricao_profissional(jogo_nome, versao, categoria, hashtags, tags_caixa):
-    """BOT 5: Monta a descrição limpa e profissional para PC / Mobile / PPSSPP."""
-    versao_texto = f" ({versao})" if versao else ""
-    
-    if categoria == "pc":
-        cat_str = "PC (Otimizado / PC Fraco)"
-    elif categoria == "android":
-        cat_str = "Android Mod APK"
-    else:
-        cat_str = "PPSSPP / PSP ISO"
+def gerar_descricao_seo(jogo_clean, versao, categoria, tags_caixa):
+    """Gera a descrição otimizada para o YouTube."""
+    ver_str = f" {versao}" if versao else ""
+    cat_label = "PC (PC Fraco / Otimizado)" if categoria == "pc" else ("Android Mod APK" if categoria == "android" else "PPSSPP / PSP ISO")
 
     desc = []
-    desc.append(f"🎮 {jogo_nome.upper()}{versao_texto} - {cat_str} ({ANO_ATUAL})")
+    desc.append(f"🎮 {jogo_clean.upper()}{ver_str} - {cat_label} ({ANO_ATUAL})")
     desc.append("=" * 60)
-    
+
     if categoria == "pc":
-        desc.append(f"Confira no vídeo de hoje a gameplay e demonstração de {jogo_nome}{versao_texto} rodando no PC! Veja como baixar, configurar e testar no seu PC fraco ou forte com a melhor performance.")
-        desc.append(f"\nFull gameplay and tutorial for {jogo_nome}{versao_texto} on PC! Check performance, system requirements, and installation guide.")
+        desc.append(f"Confira no vídeo de hoje a gameplay e demonstração de {jogo_clean}{ver_str} rodando no PC! Veja como baixar, configurar e testar no seu PC fraco ou forte com a melhor performance.")
+        desc.append(f"\nFull gameplay and tutorial for {jogo_clean}{ver_str} on PC! Check performance, system requirements, and installation guide.")
         desc.append("\n💻 REQUISITOS MÍNIMOS RECOMENDADOS:")
         desc.append("• Sistema Operacional: Windows 10 / 11 (64 bits)")
         desc.append("• Processador: Dual Core 2.0 GHz / Intel Core i3")
         desc.append("• Memória RAM: 2 GB / 4 GB RAM")
         desc.append("• Placa de Vídeo: Intel HD Graphics / Integrated GPU")
     elif categoria == "android":
-        desc.append(f"Confira a demonstração completa de {jogo_nome}{versao_texto} atualizado! Aprenda o passo a passo de instalação no seu Android.")
+        desc.append(f"Confira a demonstração completa de {jogo_clean}{ver_str} totalmente atualizado! Aprenda o passo a passo de instalação no seu Android.")
     else:
-        desc.append(f"Confira a melhor configuração, ISO e Save Data para {jogo_nome}{versao_texto} no emulador PPSSPP! Gameplay fluída em 60 FPS.")
+        desc.append(f"Confira a melhor configuração, ISO e Save Data para {jogo_clean}{ver_str} no emulador PPSSPP! Gameplay fluída em 60 FPS.")
 
     desc.append("\n" + "=" * 60)
     desc.append("⬇️ ÁREA DE DOWNLOAD & SUPORTE / DOWNLOAD LINKS:")
@@ -327,12 +281,8 @@ def bot_5_descricao_profissional(jogo_nome, versao, categoria, hashtags, tags_ca
     desc.append("\n🔍 PESQUISAS RELACIONADAS / RELATED SEARCHES (SEO CLOUD):")
     desc.append(f"{tags_caixa}")
 
-    desc.append("\n📌 HASHTAGS:")
-    if hashtags:
-        desc.append(" ".join(hashtags))
-    else:
-        clean_g = re.sub(r'[^a-zA-Z0-9]', '', jogo_nome)
-        desc.append(f"#{clean_g} #{clean_g}PC #{clean_g}PCFraco #{clean_g}Download #{ANO_ATUAL}")
+    clean_hash = re.sub(r'[^a-zA-Z0-9]', '', jogo_clean)
+    desc.append(f"\n📌 HASHTAGS:\n#{clean_hash} #{clean_hash}{categoria.upper()} #{clean_hash}Gameplay #Download #{ANO_ATUAL}")
 
     return "\n".join(desc)
 
@@ -342,64 +292,56 @@ def executar_gerador():
     categoria = os.getenv("CATEGORY", "pc").strip().lower()
     idioma_modo = os.getenv("LANGUAGE_MODE", "ambos").strip().lower()
 
+    # Formatação limpa do nome do jogo
+    jogo_clean = re.sub(r'[\(\)]', '', jogo_raw).strip()
+
     print("=" * 80)
-    print(f"🤖 ROBÔ SEO YOUTUBE TURBO 4.0: {jogo_raw.upper()} {versao}")
-    print(f"📂 Categoria: {categoria.upper()} | Público: {idioma_modo.upper()}")
+    print(f"🤖 ROBÔ SEO YOUTUBE TURBO 5.0 (SISTEMA COM 6 BOTS): {jogo_clean.upper()} {versao}")
+    print(f"📂 Categoria: {categoria.upper()} | Público Idioma: {idioma_modo.upper()}")
     print("=" * 80)
 
-    # 1. BOT 1 - Topo e Títulos
-    titulos_reais, video_ids, mod_terms_titulos = bot_1_minerador_topo(jogo_raw, categoria)
+    # Execução baseada na plataforma selecionada
+    if categoria == "android":
+        print("[+] Ativando BOTS 1 & 2 (Especialistas em Android APK)...")
+        buscas = bot_1_minerador_android(jogo_clean, idioma_modo)
+        termo_map, freq = bot_2_filtro_android(buscas, jogo_clean)
+    elif categoria == "ppsspp":
+        print("[+] Ativando BOTS 3 & 4 (Especialistas em PPSSPP / PSP)...")
+        buscas = bot_3_minerador_ppsspp(jogo_clean, idioma_modo)
+        termo_map, freq = bot_4_filtro_ppsspp(buscas, jogo_clean)
+    else:  # PC
+        print("[+] Ativando BOTS 5 & 6 (Especialistas em Jogos para PC)...")
+        buscas = bot_5_minerador_pc(jogo_clean, idioma_modo)
+        termo_map, freq = bot_6_filtro_pc(buscas, jogo_clean)
 
-    print("\n🔥 TOP 4 TÍTULOS DE ALTA PERFORMANCE (ANTI-STRIKE & SEO REAL):")
+    # 1. Títulos do topo em tempo real
+    titulos = extrair_titulos_reais_topo(jogo_clean, categoria)
+    print("\n🔥 TOP TÍTULOS DE ALTA PERFORMANCE (ANTI-STRIKE & SEO REAL):")
     print("-" * 80)
-    if len(titulos_reais) >= 4:
-        for i, t in enumerate(titulos_reais[:4], 1):
+    if titulos:
+        for i, t in enumerate(titulos, 1):
             print(f"{i}. 🚀 {t}")
     else:
         v_str = f" {versao}" if versao else ""
         if categoria == "pc":
-            fallback = [
-                f"COMO BAIXAR {jogo_raw.upper()}{v_str} PARA PC FRACO (RODA EM TUDO) - {ANO_ATUAL}",
-                f"{jogo_raw.upper()}{v_str} PC FRACO - GAMEPLAY PT-BR + DOWNLOAD MEDIAFIRE",
-                f"COMO INSTALAR {jogo_raw.upper()}{v_str} NO PC PASSO A PASSO ATUALIZADO",
-                f"{jogo_raw.upper()}{v_str} LOW END PC TEST & PERFORMANCE GUIDE"
-            ]
-        elif categoria == "android":
-            fallback = [
-                f"{jogo_raw.upper()}{v_str} MOD MENU SHOWCASE ATUALIZADO {ANO_ATUAL}",
-                f"{jogo_raw.upper()}{v_str} MOD APK UNLIMITED RESOURCES MEDIAFIRE",
-                f"COMO BAIXAR {jogo_raw.upper()}{v_str} MOD ATUALIZADO NO ANDROID",
-                f"{jogo_raw.upper()}{v_str} GAMEPLAY & FULL SHOWCASE TUTORIAL"
-            ]
-        else:
-            fallback = [
-                f"{jogo_raw.upper()} PPSSPP ISO DOWNLOAD MEDIAFIRE ATUALIZADO",
-                f"COMO BAIXAR E INSTALAR {jogo_raw.upper()} NO PPSSPP ANDROID 60FPS",
-                f"{jogo_raw.upper()} PPSSPP BEST SETTINGS & SAVE DATA COMPLETE",
-                f"{jogo_raw.upper()} PSP ISO + TEXTURES HD SHOWCASE"
-            ]
-        for i, t in enumerate(fallback, 1):
-            print(f"{i}. 🚀 {t}")
+            print(f"1. 🚀 COMO BAIXAR {jogo_clean.upper()}{v_str} PARA PC FRACO (SEM PLACA DE VÍDEO) - {ANO_ATUAL}")
+            print(f"2. 🚀 {jogo_clean.upper()}{v_str} PC FRACO - GAMEPLAY PT-BR + DOWNLOAD MEDIAFIRE")
+            print(f"3. 🚀 HOW TO DOWNLOAD AND RUN {jogo_clean.upper()}{v_str} ON LOW END PC ({ANO_ATUAL})")
+            print(f"4. 🚀 {jogo_clean.upper()}{v_str} FULL PC PERFORMANCE TEST & TUTORIAL")
 
-    # 2. BOT 2 - Hashtags de Descrição
-    hashtags_massivas = bot_2_super_raspador_hashtags(video_ids)
-
-    # 3. BOT 3 & 4 - Autocomplete Profundo e Caixa de Tags
-    buscas_bot3 = bot_3_autocomplete_inteligente(jogo_raw, categoria, idioma_modo, mod_terms_titulos)
-    tags_caixa_final = bot_4_filtro_e_cruzamento(buscas_bot3, video_ids, jogo_raw, categoria)
-
-    print("\n📌 CAIXA DE TAGS DE BUSCA (500 CARACTERES - PRONTA PARA COPIAR):")
+    # 2. Caixa de Tags 500 Caracteres
+    tags_500 = montar_caixa_tags_500(termo_map, freq)
+    print("\n📌 CAIXA DE TAGS DE BUSCA (500 CARACTERES - PT-BR & EN-US MISTURADOS E REAIS):")
     print("-" * 80)
-    print(tags_caixa_final)
+    print(tags_500)
     print("-" * 80)
-    print(f"📊 Total de caracteres utilizados: {len(tags_caixa_final)}/500")
+    print(f"📊 Total de caracteres utilizados: {len(tags_500)}/500")
 
-    # 4. BOT 5 - Descrição Completa Gerada Otimizada
-    descricao_completa = bot_5_descricao_profissional(jogo_raw, versao, categoria, hashtags_massivas, tags_caixa_final)
-
+    # 3. Descrição SEO
+    descricao = gerar_descricao_seo(jogo_clean, versao, categoria, tags_500)
     print("\n📝 DESCRIÇÃO COMPLETA PARA O YOUTUBE (BILINGUE + LINKS + HASHTAGS):")
     print("-" * 80)
-    print(descricao_completa)
+    print(descricao)
     print("=" * 80)
 
 if __name__ == "__main__":
