@@ -19,7 +19,7 @@ COOKIES_YT = {
 }
 
 # Lixo de sistema, canais genéricos e consoles que gastam espaço das suas tags
-LIXO_PLATA FORMAS_E_CANANIS = {
+LIXO_PLATAFORMAS_E_CANANIS = {
     'vídeo', 'compartilhamento', 'celular com câmera', 'videofone', 'gratuito', 'envio',
     'video', 'sharing', 'camera phone', 'free', 'upload', 'youtube', 'yt', 'shorts',
     'mobile', 'cell phone', 'phone', 'app', 'google', 'menu', 'header', 'button', 'icon',
@@ -52,7 +52,7 @@ def limpar_titulo_anti_strike(titulo):
 
 def eh_hashtag_valida(ht_raw):
     ht = ht_raw.lower().replace("#", "").strip()
-    if len(ht) < 2 or ht.isdigit() or ht in LIXO_PLATA FORMAS_E_CANANIS or eh_hex_color(ht):
+    if len(ht) < 2 or ht.isdigit() or ht in LIXO_PLATAFORMAS_E_CANANIS or eh_hex_color(ht):
         return False
     return True
 
@@ -68,7 +68,7 @@ def buscar_autocomplete_yt(termo, lang="pt", country="BR"):
     return []
 
 # ==============================================================================
-# SISTEMA DE 6 BOTS DEDICADOS POR PLATAFORMA (ANDROIDE, PPSSPP, PC)
+# SISTEMA DE 6 BOTS DEDICADOS POR PLATAFORMA (ANDROID, PPSSPP, PC)
 # ==============================================================================
 
 # --- PLATAFORMA 1: ANDROID ---
@@ -98,7 +98,7 @@ def bot_2_filtro_android(buscas_brutas, jogo_clean):
     for cand in buscas_brutas:
         c_clean = re.sub(r'[^\w\s\-\/]', '', cand).strip()
         c_lower = c_clean.lower()
-        if len(c_clean) <= 3 or c_lower in LIXO_PLATA FORMAS_E_CANANIS or "ppsspp" in c_lower or "pc " in c_lower:
+        if len(c_clean) <= 3 or c_lower in LIXO_PLATAFORMAS_E_CANANIS or "ppsspp" in c_lower or "pc " in c_lower:
             continue
         if any(p in c_lower for p in jogo_clean.lower().split()):
             frequencia[c_lower] += 1
@@ -133,7 +133,7 @@ def bot_4_filtro_ppsspp(buscas_brutas, jogo_clean):
     for cand in buscas_brutas:
         c_clean = re.sub(r'[^\w\s\-\/]', '', cand).strip()
         c_lower = c_clean.lower()
-        if len(c_clean) <= 3 or c_lower in LIXO_PLATA FORMAS_E_CANANIS or "apk" in c_lower:
+        if len(c_clean) <= 3 or c_lower in LIXO_PLATAFORMAS_E_CANANIS or "apk" in c_lower:
             continue
         if any(p in c_lower for p in jogo_clean.lower().split()):
             frequencia[c_lower] += 1
@@ -163,7 +163,7 @@ def bot_5_minerador_pc(jogo_clean, idioma_modo):
     return resultados
 
 def bot_6_filtro_pc(buscas_brutas, jogo_clean):
-    """BOT 6: Filtra e consolida tags estritas para PC (Elimina lixo de celula e consoles)."""
+    """BOT 6: Filtra e consolida tags estritas para PC (Elimina lixo de celular e consoles)."""
     frequencia = Counter()
     termo_map = {}
     
@@ -179,7 +179,7 @@ def bot_6_filtro_pc(buscas_brutas, jogo_clean):
 
         c_lower = c_clean.lower()
 
-        if len(c_clean) <= 3 or c_lower in LIXO_PLATA FORMAS_E_CANANIS:
+        if len(c_clean) <= 3 or c_lower in LIXO_PLATAFORMAS_E_CANANIS:
             continue
 
         if any(b in c_lower for b in termos_bloqueados_pc):
