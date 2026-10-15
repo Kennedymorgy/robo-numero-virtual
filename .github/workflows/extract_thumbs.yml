@@ -1,0 +1,37 @@
+name: Extrator de Thumbnails YouTube (Max Quality)
+
+on:
+  workflow_dispatch:
+    inputs:
+      search_query:
+        description: 'Nome do Jogo ou Pesquisa (ex: GTA 5 Lite, FR Legends, PPSSPP)'
+        required: true
+        default: 'GTA 5 Lite PC Fraco'
+
+jobs:
+  extrair-capas:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Baixar código do repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Instalar biblioteca de requisições
+        run: pip install requests
+
+      - name: Rodar Extrator de Thumbnails
+        env:
+          SEARCH_QUERY: ${{ github.event.inputs.search_query }}
+        run: python thumb_extractor.py
+
+      - name: Disponibilizar Imagens para Download (Zip Artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Capas-YouTube-${{ github.event.inputs.search_query }}
+          path: thumbnails_extraidas/
+          retention-days: 7
