@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       search_query:
-        description: 'Nome do Jogo ou Pesquisa (ex: GTA 5 Lite, FR Legends, PPSSPP)'
+        description: 'Nome do Jogo / Pesquisa (ex: Avakin Life, GTA 5 Lite, FR Legends)'
         required: true
-        default: 'GTA 5 Lite PC Fraco'
+        default: 'Avakin Life Mod Menu'
 
 jobs:
   extrair-capas:
@@ -29,9 +29,9 @@ jobs:
           SEARCH_QUERY: ${{ github.event.inputs.search_query }}
         run: python thumb_extractor.py
 
-      - name: Disponibilizar Imagens para Download (Zip Artifact)
+      - name: Disponibilizar Galeria e Imagens para Download
         uses: actions/upload-artifact@v4
         with:
-          name: Capas-YouTube-${{ github.event.inputs.search_query }}
+          name: Capas-YouTube-15-Top-${{ github.event.inputs.search_query }}
           path: thumbnails_extraidas/
           retention-days: 7
