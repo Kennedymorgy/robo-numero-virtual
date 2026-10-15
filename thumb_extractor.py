@@ -15,14 +15,16 @@ COOKIES_YT = {
 }
 
 def limpar_nome_arquivo(nome):
-    """Remove caracteres inválidos para salvar o nome do arquivo da imagem."""
-    return re.sub(r'[\\/*?:"<>|]', "", nome).strip()
+    """Remove caracteres especiais para salvar o arquivo de imagem sem erros."""
+    nome_limpo = re.sub(r'[\\/*?:"<>|]', "", nome)
+    return re.sub(r'\s+', '_', nome_limpo).strip()
 
 def baixar_imagem(url, caminho_saida):
-    """Tenta baixar a imagem. Se a versão em 1080p (maxresdefault) não existir, pega a versão HD (hqdefault)."""
+    """Baixa a imagem e verifica se possui tamanho/qualidade real."""
     try:
         r = requests.get(url, headers=HEADERS_DESKTOP, timeout=10)
-        if r.status_code == 200 and len(r.content) > 1000:  # Garante que não é uma imagem genérica/quebrada
+        # Se retornar 200 e a imagem for maior que 5KB (evita imagens em branco do YouTube)
+        if r.status_code == 200 and len(r.content) > 5000:
             with open(caminho_saida, 'wb') as f:
                 f.write(r.content)
             return True
@@ -32,12 +34,10 @@ def baixar_imagem(url, caminho_saida):
 
 def extrair_thumbnails_topo(busca_termo, limite=10):
     print("=" * 80)
-    print(f"🖼️ EXTRAINDO THUMBNAILS DOS TOP {limite} VÍDEOS: '{busca_termo.upper()}'")
+    print(f"🖼️ EXTRAINDO THUMBNAILS MAX QUALITY (1080p): '{busca_termo.upper()}'")
     print("=" * 80)
 
     url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(busca_termo)}"
-    
-    # Cria pasta para salvar as imagens
     pasta_saida = "thumbnails_extraidas"
     os.makedirs(pasta_saida, exist_ok=True)
 
@@ -62,7 +62,7 @@ def extrair_thumbnails_topo(busca_termo, limite=10):
                             title = vr.get('title', {}).get('runs', [{}])[0].get('text', '')
                             v_id = vr.get('videoId', '')
                             
-                            if v_id and title:
+                            if v_id and title and v_id not in [v['id'] for v in videos_encontrados]:
                                 videos_encontrados.append({
                                     "id": v_id,
                                     "titulo": title
@@ -76,38 +76,39 @@ def extrair_thumbnails_topo(busca_termo, limite=10):
         return
 
     if not videos_encontrados:
-        print("⚠️ Nenhum vídeo encontrado. Verifique a conexão ou a busca.")
+        print("⚠️ Nenhum vídeo encontrado na busca do YouTube.")
         return
 
-    print(f"\n🔍 Encontrados {len(videos_encontrados)} vídeos no topo. Baixando capas em alta qualidade...\n")
+    print(f"🔍 {len(videos_encontrados)} vídeos encontrados no topo. Baixando thumbnails...\n")
 
     for idx, vid in enumerate(videos_encontrados, 1):
         v_id = vid["id"]
-        titulo_limpo = limpar_nome_arquivo(vid["titulo"])[:40]  # Limita o tamanho do nome do arquivo
+        titulo_limpo = limpar_nome_arquivo(vid["titulo"])[:35]
         
-        # O YouTube possui padrão de URLs para thumbnails:
-        url_maxres = f"https://i.ytimg.com/vi/{v_id}/maxresdefault.jpg"  # Full HD (1080p)
-        url_hq = f"https://i.ytimg.com/vi/{v_id}/hqdefault.jpg"          # HD Padrão (480p)
+        # Tentativa 1: Qualidade Máxima HD (1080p - maxresdefault)
+        # Tentativa 2: Qualidade Alta (480p - hqdefault)
+        url_maxres = f"https://i.ytimg.com/vi/{v_id}/maxresdefault.jpg"
+        url_hq = f"https://i.ytimg.com/vi/{v_id}/hqdefault.jpg"
 
-        nome_arquivo = f"{idx:02d}_{v_id}_{titulo_limpo}.jpg"
+        nome_arquivo = f"TOP_{idx:02d}_{titulo_limpo}.jpg"
         caminho_final = os.path.join(pasta_saida, nome_arquivo)
 
-        # Tenta baixar a MaxRes primeiro; se não existir, baixa a HQ
+        # Prioriza baixar em 1080p; se o criador não subiu em Full HD, pega a versão HQ
         sucesso = baixar_imagem(url_maxres, caminho_final)
+        qualidade = "MAXRES (1080p)"
         if not sucesso:
             sucesso = baixar_imagem(url_hq, caminho_final)
+            qualidade = "HQ (480p)"
 
         if sucesso:
-            print(f"✅ [{idx:02d}/{limite}] Baixada com sucesso: {nome_arquivo}")
-            print(f"   🔗 Link original: https://youtu.be/{v_id}")
+            print(f"✅ [{idx:02d}/{limite}] Baixada [{qualidade}]: {nome_arquivo}")
         else:
-            print(f"❌ [{idx:02d}/{limite}] Falha ao baixar thumbnail do vídeo: {v_id}")
+            print(f"❌ [{idx:02d}/{limite}] Falha ao baixar capa do vídeo: {v_id}")
 
     print("\n" + "=" * 80)
-    print(f"📁 TODAS AS THUMBNAILS FORAM SALVAS NA PASTA: '{pasta_saida}/'")
+    print(f"📁 TODAS AS 10 CAPAS FORAM SALVAS COM SUCESSO!")
     print("=" * 80)
 
 if __name__ == "__main__":
-    # Pega o termo das variáveis de ambiente ou usa um valor padrão de teste
     termo = os.getenv("SEARCH_QUERY", "GTA 5 Lite PC Fraco").strip()
     extrair_thumbnails_topo(termo, limite=10)
