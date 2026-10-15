@@ -1,0 +1,46 @@
+name: Baixar Vídeo do YouTube por URL
+
+on:
+  workflow_dispatch:
+    inputs:
+      video_url:
+        description: 'Cole a URL do Vídeo do YouTube aqui'
+        required: true
+        default: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
+      only_audio:
+        description: 'Baixar apenas o Áudio (MP3)?'
+        required: true
+        type: boolean
+        default: false
+
+jobs:
+  baixar-conteudo:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Baixar código do repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Instalar FFmpeg e yt-dlp
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          pip install yt-dlp
+
+      - name: Rodar Baixador de Vídeo
+        env:
+          VIDEO_URL: ${{ github.event.inputs.video_url }}
+          ONLY_AUDIO: ${{ github.event.inputs.only_audio }}
+        run: python video_downloader.py
+
+      - name: Disponibilizar Vídeo/Áudio para Download
+        uses: actions/upload-artifact@v4
+        with:
+          name: Conteudo-Baixado-YouTube
+          path: downloads_videos/
+          retention-days: 7
