@@ -1,0 +1,33 @@
+name: Pular Encurtador de Links (Bypasser)
+
+on:
+  workflow_dispatch:
+    inputs:
+      short_url:
+        description: 'Cole a URL do Encurtador (ex: EncurtaNet, etc)'
+        required: true
+        default: 'https://encurta.net/exemplo'
+
+jobs:
+  pular-encurtador:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Baixar código do repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Instalar Playwright e Navegador Chromium
+        run: |
+          pip install playwright
+          playwright install chromium
+          playwright install-deps
+
+      - name: Rodar Bypasser de Encurtador
+        env:
+          SHORT_URL: ${{ github.event.inputs.short_url }}
+        run: python encurtador_bypasser.py
