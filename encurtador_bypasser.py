@@ -2,18 +2,19 @@ import os
 import sys
 import re
 import time
+import json
 from bs4 import BeautifulSoup
 from curl_cffi import requests
 
 def passar_encurtador_adlinkfly(url_encurtada):
     print("=" * 80)
-    print(f"🔓 BURLANDO ENCURTADOR (ADLINKFLY / SHRTSLUG ENGINE)")
+    print(f"🔓 BURLANDO ENCURTADOR (ADLINKFLY / API ENGINE)")
     print(f"🔗 URL Alvo: {url_encurtada}")
     print("=" * 80)
 
     link_final = None
     
-    # Cria a sessão mantendo os cookies automaticamente entre as requisições
+    # Cria a sessão mantendo os cookies automaticamente
     session = requests.Session(impersonate="chrome120")
     
     domain_base = "/".join(url_encurtada.split("/")[:3])
@@ -35,16 +36,16 @@ def passar_encurtador_adlinkfly(url_encurtada):
             return
 
         print("[2/4] Aguardando o temporizador interno do encurtador...")
-        time.sleep(8) # Tempo para os scripts de contagem liberarem o form
+        time.sleep(8) # Tempo para os scripts liberarem o formulário
 
         soup = BeautifulSoup(response.text, 'html.parser')
 
-        # Procura por links de download direto logo de cara no HTML inicial
+        # Procura por links de download direto no HTML inicial
         matches = re.findall(r'https?://(?:www\.)?(?:mediafire\.com|drive\.google\.com|mega\.nz|mega\.io)[^\s"\'<>]+', response.text)
         if matches:
             link_final = matches[0]
 
-        # Se não achou direto, busca o formulário padrão do AdLinkFly
+        # Se não achou direto, busca o formulário do AdLinkFly
         if not link_final:
             form = soup.find('form')
             if form:
@@ -52,7 +53,7 @@ def passar_encurtador_adlinkfly(url_encurtada):
                 if not action.startswith('http'):
                     action = domain_base + (action if action.startswith('/') else '/' + action)
 
-                # Extrai todos os campos ocultos (como _token de segurança)
+                # Extrai os campos ocultos do formulário (tokens de segurança)
                 inputs = form.find_all('input')
                 data = {}
                 for inp in inputs:
@@ -61,38 +62,49 @@ def passar_encurtador_adlinkfly(url_encurtada):
                     if name:
                         data[name] = value
 
-                print(f"[3/4] Submetendo formulário com tokens de sessão para: {action}")
-                headers["Content-Type"] = "application/x-www-form-urlencoded"
+                print(f"[3/4] Disparando requisição AJAX para a API do encurtador: {action}")
+                
+                # Adiciona o cabeçalho AJAX essencial para encurtadores AdLinkFly retornarem JSON
+                headers["Content-Type"] = "application/x-www-form-urlencoded; charset=UTF-8"
+                headers["X-Requested-With"] = "XMLHttpRequest"
                 
                 post_response = session.post(action, data=data, headers=headers, timeout=30)
                 
-                # Procura links na resposta do POST
-                matches_post = re.findall(r'https?://(?:www\.)?(?:mediafire\.com|drive\.google\.com|mega\.nz|mega\.io)[^\s"\'<>]+', post_response.text)
-                if matches_post:
-                    link_final = matches_post[0]
-                else:
-                    # Tenta capturar redirecionamento via script JavaScript na resposta
-                    soup_post = BeautifulSoup(post_response.text, 'html.parser')
-                    for script in soup_post.find_all('script'):
-                        if script.string:
-                            js_match = re.search(r'(?:window\.location\.href|location\.replace)\s*=\s*["\'](https?://[^"\']+)["\']', script.string)
-                            if js_match:
-                                potential_url = js_match.group(1)
-                                if not any(bad in potential_url for bad in ["shrtslug", "encurta", "adfly"]):
-                                    link_final = potential_url
-                                    break
+                print(f"[4/4] Analisando resposta JSON/Texto do servidor...")
+                
+                # Tenta ler como JSON (padrão de retorno do AdLinkFly)
+                try:
+                    json_resp = post_response.json()
+                    print(f"📦 Resposta da API recebida: {json.dumps(json_resp)}")
+                    
+                    # Procura chaves comuns onde o link final costuma vir guardado
+                    for key in ['url', 'success_url', 'link', 'data']:
+                        if key in json_resp and json_resp[key]:
+                            val = json_resp[key]
+                            if isinstance(val, str) and val.startswith('http'):
+                                link_final = val
+                                break
+                    
+                    # Se vier dentro de um objeto aninhado
+                    if not link_final and 'message' in json_resp and isinstance(json_resp['message'], str):
+                        msg_match = re.search(r'https?://[^\s"\'<>]+', json_resp['message'])
+                        if msg_match:
+                            link_final = msg_match.group(0)
+                except Exception as json_err:
+                    print(f"ℹ️ A resposta não veio em JSON puro. Analisando texto...")
 
-        # Varredura profunda em todos os scripts da página se ainda persistir
+                # Se o JSON não deu match, busca por regex na resposta do POST
+                if not link_final:
+                    matches_post = re.findall(r'https?://(?:www\.)?(?:mediafire\.com|drive\.google\.com|mega\.nz|mega\.io)[^\s"\'<>]+', post_response.text)
+                    if matches_post:
+                        link_final = matches_post[0]
+
+        # Varredura final de segurança no HTML bruto se ainda não achar
         if not link_final:
-            print("[4/4] Varredura profunda em blocos de script JavaScript...")
-            for script in soup.find_all('script'):
-                if script.string:
-                    urls = re.findall(r'https?://[^\s"\'<>]+', script.string)
-                    for u in urls:
-                        if any(dom in u for dom in ["mediafire.com", "drive.google.com", "mega.nz", "mega.io"]):
-                            link_final = u
-                            break
-                if link_final:
+            urls = re.findall(r'https?://[^\s"\'<>]+', response.text)
+            for u in urls:
+                if any(dom in u for dom in ["mediafire.com", "drive.google.com", "mega.nz", "mega.io"]):
+                    link_final = u
                     break
 
     except Exception as e:
