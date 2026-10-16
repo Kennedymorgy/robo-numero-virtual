@@ -1,32 +1,33 @@
-name: Burlar Encurtador
+name: Pular Encurtador de Links (Bypasser)
 
 on:
   workflow_dispatch:
     inputs:
       short_url:
-        description: 'Cole a URL encurtada aqui'
+        description: 'Cole a URL do Encurtador (ex: EncurtaNet, etc)'
         required: true
-        default: 'https://shrtslug.biz/97rjy'
+        default: 'https://encurta.net/exemplo'
 
 jobs:
-  run-python-bot:
+  pular-encurtador:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout do Repositório
+      - name: Baixar código do repositório
         uses: actions/checkout@v4
 
       - name: Configurar Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.x'
 
-      - name: Instalar Dependências
+      - name: Instalar Playwright e Navegador Chromium
         run: |
-          pip install curl_cffi beautifulsoup4
+          pip install playwright
+          playwright install chromium
+          playwright install-deps
 
-      - name: Executar Script
+      - name: Rodar Bypasser de Encurtador
         env:
           SHORT_URL: ${{ github.event.inputs.short_url }}
-          FIREBASE_SECRET: ${{ secrets.FIREBASE_SECRET }} # Se usar secret no Firebase
-        run: |
-          python seu_script.py
+        run: python encurtador_bypasser.py
