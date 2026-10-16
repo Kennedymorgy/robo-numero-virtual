@@ -2,126 +2,77 @@ import os
 import sys
 import re
 import time
-from playwright.sync_api import sync_playwright
+from bs4 import BeautifulSoup
+from curl_cffi import requests
 
 def passar_encurtador(url_encurtada):
     print("=" * 80)
-    print(f"🔓 DESCRIPTOGRAFANDO LINK E BURLANDO ENCURTADOR")
+    print(f"🔓 BURLANDO ENCURTADOR COM CURL_CFFI (BYPASS CLOUDFLARE)")
     print(f"🔗 URL Alvo: {url_encurtada}")
     print("=" * 80)
 
     link_final = None
 
-    with sync_playwright() as p:
-        # Inicia o navegador com argumentos avançados anti-detecção
-        browser = p.chromium.launch(
-            headless=True,  # Mude para False se quiser assistir o navegador abrindo e resolvendo
-            args=[
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-blink-features=AutomationControlled',
-                '--disable-infobars',
-                '--start-maximized'
-            ]
-        )
+    # Cria sessão com impressão digital real do Chrome 120
+    session = requests.Session(impersonate="chrome120")
+    
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.9,en;q=0.9",
+        "Referer": url_encurtada
+    }
+
+    try:
+        print("[1/3] Acessando a página do encurtador...")
+        response = session.get(url_encurtada, headers=headers, timeout=30)
         
-        context = browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            viewport={'width': 1366, 'height': 768},
-            device_scale_factor=1,
-            is_mobile=False,
-            has_touch=False
-        )
+        if response.status_code != 200:
+            print(f"❌ Erro HTTP {response.status_code}: A página bloqueou a requisição.")
+            return
 
-        page = context.new_page()
+        print("[2/3] Analisando o conteúdo e aguardando timer simulado...")
+        time.sleep(6) # Aguarda o tempo necessário para o encurtador liberar o link
 
-        # Injeta script para esconder o navigator.webdriver
-        page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        soup = BeautifulSoup(response.text, 'html.parser')
 
-        try:
-            print("[1/4] Acessando a página do encurtador...")
-            page.goto(url_encurtada, wait_until="domcontentloaded", timeout=40000)
-            
-            # Pequena pausa para carregar os scripts iniciais
-            time.sleep(3)
+        # Estratégia A: Procura por links de download direto (Mediafire, Mega, Drive, etc.) no HTML
+        matches = re.findall(r'https?://(?:www\.)?(?:mediafire\.com|drive\.google\.com|mega\.nz|mega\.io)[^\s"\'<>]+', response.text)
+        if matches:
+            link_final = matches[0]
 
-            # Estratégia 1: Verifica se já caiu direto no link final
-            if any(dom in page.url for dom in ["mediafire.com", "drive.google.com", "mega.nz", "mega.io", "play.google.com"]):
-                link_final = page.url
-                print(f"✅ Link final encontrado diretamente: {link_final}")
-
-            # Estratégia 2: Aguardar temporizador e lidar com botões de encurtadores
-            if not link_final:
-                print("[2/4] Aguardando temporizador e elementos da página...")
+        # Estratégia B: Se não achou direto, procura por formulários de redirecionamento (comum em AdLinkFly/Shrtslug)
+        if not link_final:
+            form = soup.find('form')
+            if form:
+                action = form.get('action') or url_encurtada
+                inputs = form.find_all('input')
+                data = {inp.get('name'): inp.get('value') for inp in inputs if inp.get('name')}
                 
-                # Tenta rolar a página para simular comportamento humano
-                try:
-                    page.evaluate("window.scrollTo(0, document.body.scrollHeight / 2);")
-                except:
-                    pass
-
-                time.sleep(10) # Aguarda o timer padrão do encurtador
-
-                print("[3/4] Procurando botões de redirecionamento ('Obter Link' / 'Continuar')...")
+                print("[3/3] Enviando requisição de liberação para o formulário...")
+                post_response = session.post(action, data=data, headers=headers, timeout=30)
                 
-                # Seletores comuns em encurtadores modernos (AdLinkFly / Shrtslug / etc)
-                seletores = [
-                    "#btn-poster", "#get-link", "a#get-link", ".btn-success", 
-                    "button#submit-button", ".get-link", "a.get-link",
-                    "button.btn-primary", "input[type='submit']",
-                    "a[href*='mediafire']", "a[href*='drive.google']", "a[href*='mega']"
-                ]
-
-                # Tenta clicar no primeiro botão válido que aparecer
-                for seletor in seletores:
+                # Procura links na resposta do POST
+                matches_post = re.findall(r'https?://(?:www\.)?(?:mediafire\.com|drive\.google\.com|mega\.nz|mega\.io)[^\s"\'<>]+', post_response.text)
+                if matches_post:
+                    link_final = matches_post[0]
+                else:
                     try:
-                        elemento = page.locator(seletor).first
-                        if elemento.is_visible(timeout=2000):
-                            print(f"🎯 Botão encontrado com o seletor '{seletor}'. Clicando...")
-                            
-                            # Clica e aguja nova página ou navegação
-                            with page.expect_popup(timeout=5000) as popup_info:
-                                elemento.click()
-                            
-                            popup_page = popup_info.value
-                            popup_page.wait_for_load_state("domcontentloaded", timeout=10000)
-                            
-                            if any(dom in popup_page.url for dom in ["mediafire.com", "drive.google.com", "mega.nz", "mega.io"]):
-                                link_final = popup_page.url
-                                break
-                    except Exception:
+                        json_data = post_response.json()
+                        if 'url' in json_data:
+                            link_final = json_data['url']
+                    except:
                         pass
-                
-                # Se não abriu popup, verifica se a página atual mudou de URL após o clique
-                if not link_final:
-                    current_url = page.url
-                    if not current_url.startswith(url_encurtada) and not any(bad in current_url for bad in ["shrtslug", "encurta", "adfly"]):
-                        link_final = current_url
 
-            # Estratégia 3: Varredura profunda no código-fonte HTML por links diretos
-            if not link_final:
-                print("[4/4] Analisando o código-fonte da página em busca do link de download final...")
-                html = page.content()
-                
-                matches = re.findall(r'https?://(?:www\.)?(?:mediafire\.com|drive\.google\.com|mega\.nz|mega\.io)[^\s"\'<>]+', html)
-                if matches:
-                    link_final = matches[0]
+        # Se ainda não achou, salva o HTML para inspetoria
+        if not link_final:
+            os.makedirs("debug", exist_ok=True)
+            with open("debug/response_html.html", "w", encoding="utf-8") as f:
+                f.write(response.text)
+            print("📄 HTML bruto salvo em 'debug/response_html.html' para análise.")
 
-            # Se ainda falhar, tira um print para debug
-            if not link_final:
-                os.makedirs("debug", exist_ok=True)
-                page.screenshot(path="debug/erro_debug.png", full_page=True)
-                print("📸 Captura de tela salva em 'debug/erro_debug.png' para análise.")
-
-        except Exception as e:
-            print(f"⚠️ Aviso de execução: {e}")
-            try:
-                page.screenshot(path="debug/erro_excecao.png", full_page=True)
-            except:
-                pass
-
-        browser.close()
+    except Exception as e:
+        print(f"⚠️ Erro de execução: {e}")
 
     print("\n" + "=" * 80)
     if link_final:
@@ -129,11 +80,10 @@ def passar_encurtador(url_encurtada):
         print(f"👉 {link_final}")
     else:
         print("❌ Não foi possível capturar o link automático nesta tentativa.")
-        print("💡 Dica: O encurtador pode estar exigindo CAPTCHA visual humano (Cloudflare/Turnstile).")
     print("=" * 80)
 
 if __name__ == "__main__":
-    url_input = os.getenv("SHORT_URL", "https://shrtslug.biz/97rjy").strip()
+    url_input = os.getenv("SHORT_URL", "").strip()
     if not url_input:
         print("❌ Nenhuma URL fornecida!")
         sys.exit(1)
