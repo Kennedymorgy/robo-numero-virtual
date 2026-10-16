@@ -1,11 +1,13 @@
 import os
 import sys
 import time
+import json
+import re
 from playwright.sync_api import sync_playwright
 
-def passar_encurtador_multietapas(url_inicial):
+def passar_encurtador_blog_advanced(url_inicial):
     print("=" * 80)
-    print(f"🔓 BURLANDO ENCURTADOR MULTI-ETAPAS (MOTOR ANTI-LOOP + IMAGENS)")
+    print(f"🔓 BURLANDO ENCURTADOR (EXTRATOR COM SCROLL PROFUNDO E IFRAMES)")
     print(f"🔗 URL Inicial: {url_inicial}")
     print("=" * 80)
 
@@ -33,7 +35,7 @@ def passar_encurtador_multietapas(url_inicial):
         page = context.new_page()
         page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
 
-        # Interceptador de rede para capturar URLs finais
+        # Monitoramento contínuo da rede
         def handle_response(response):
             nonlocal link_final
             if not link_final:
@@ -71,103 +73,96 @@ def passar_encurtador_multietapas(url_inicial):
                 current_url = page.url
                 print(f"\n--- [ETAPA {etapa}/{max_etapas}] URL atual: {current_url} ---")
 
-                # Verifica se travou na mesma URL anterior
-                if current_url == ultima_url:
-                    print(f"⚠️ A URL não mudou. Tentando estratégia alternativa (rolar página e clicar em imagens)...")
-                    try:
-                        page.evaluate("window.scrollBy(0, 600);")
-                        time.sleep(3)
-                        # Tenta clicar em qualquer imagem ou link de anúncio visível
-                        imagens = page.locator("img")
-                        if imagens.count() > 0:
-                            for i in range(min(imagens.count(), 3)):
-                                img_el = imagens.nth(i)
-                                if img_el.is_visible():
-                                    print(f"🖼️ Clicando em imagem/banner da página...")
-                                    img_el.click(timeout=2000)
-                                    time.sleep(4)
-                                    break
-                    except:
-                        pass
-                else:
-                    ultima_url = current_url
-
-                # Verifica se já chegou ao destino final
                 if any(dom in current_url for dom in ["mediafire.com", "drive.google.com", "mega.nz", "mega.io"]):
                     link_final = current_url
                     break
 
-                print(f"⏳ Aguardando temporizador e scripts da etapa {etapa}...")
-                time.sleep(7)
+                # Scroll progressivo para simular navegação humana e disparar scripts de ad/timer
+                print(f"📜 Efetuando rolagem suave pela página...")
+                for scroll in range(5):
+                    page.evaluate(f"window.scrollTo(0, document.body.scrollHeight * {(scroll + 1) / 5});")
+                    time.sleep(1.5)
 
-                try:
-                    page.evaluate("window.scrollTo(0, document.body.scrollHeight / 2);")
-                except:
-                    pass
+                print(f"⏳ Aguardando temporizadores da etapa {etapa}...")
+                time.sleep(6)
 
-                # Seletores inteligentes priorizando botões reais e links de texto
-                seletores = [
-                    "button:has-text('Get Link')", "button:has-text('Obter Link')",
-                    "button:has-text('Continue')", "button:has-text('Continuar')",
-                    "a:has-text('Get Link')", "a:has-text('Obter Link')",
-                    "a:has-text('Continue')", "a:has-text('Continuar')",
-                    "a#get-link", "#btn-main", ".btn-success", "button.btn-primary"
-                ]
+                # Busca por atributos data-url / data-href no HTML
+                html_content = page.content()
+                matches_data = re.findall(r'data-(?:url|href|link)=["\'](https?://[^"\']+)["\']', html_content)
+                for match in matches_data:
+                    if any(dom in match for dom in ["mediafire.com", "drive.google.com", "mega.nz", "mega.io"]):
+                        link_final = match
+                        break
 
+                if link_final:
+                    break
+
+                # Tenta localizar e clicar em elementos específicos dentro do frame principal e iFrames
+                frames = [page] + page.frames
                 clicou = False
-                for seletor in seletores:
+
+                for frame in frames:
                     try:
-                        elementos = page.locator(seletor)
-                        count = elementos.count()
-                        for i in range(count):
-                            el = elementos.nth(i)
-                            if el.is_visible(timeout=1000):
-                                texto_el = el.inner_text().lower()
-                                if any(termo in texto_el for termo in ["loading", "wait", "segundos"]):
-                                    continue # Ignora botões falsos de loading
-                                
-                                print(f"🎯 Clicando no elemento [{seletor}] (Texto: '{texto_el[:20]}')...")
-                                
-                                try:
-                                    with page.expect_popup(timeout=3000) as popup_info:
-                                        el.click(timeout=3000)
-                                    popup_page = popup_info.value
-                                    popup_page.wait_for_load_state("domcontentloaded", timeout=10000)
-                                    page = popup_page
-                                    page.on("response", handle_response)
-                                except:
-                                    el.click(timeout=3000)
+                        # Seletores focados em botões reais de encurtadores
+                        seletores_alvo = [
+                            "#btn-main", "#get-link", "a#get-link", "a.get-link", ".btn-success",
+                            "#btn-poster", "#gotolink", "#landing-btn", ".download-btn",
+                            "button:has-text('Get Link')", "a:has-text('Get Link')",
+                            "button:has-text('Obter Link')", "a:has-text('Obter Link')",
+                            "button:has-text('Continue')", "a:has-text('Continue')"
+                        ]
+
+                        for seletor in seletores_alvo:
+                            elementos = frame.locator(seletor)
+                            count = elementos.count()
+                            for i in range(count):
+                                el = elementos.nth(i)
+                                if el.is_visible(timeout=1000):
+                                    txt = el.inner_text().lower()
+                                    print(f"🎯 Botão válido encontrado [{seletor}] (Texto: '{txt[:20]}'). Clicando...")
                                     
-                                clicou = True
-                                time.sleep(5)
+                                    try:
+                                        with page.expect_popup(timeout=3000) as popup_info:
+                                            el.click(timeout=3000)
+                                        popup_page = popup_info.value
+                                        popup_page.wait_for_load_state("domcontentloaded", timeout=10000)
+                                        page = popup_page
+                                        page.on("response", handle_response)
+                                    except:
+                                        el.click(timeout=3000)
+                                        
+                                    clicou = True
+                                    time.sleep(5)
+                                    break
+                            if clicou:
                                 break
                         if clicou:
                             break
                     except:
                         continue
 
+                # Se não achou botões padrão, tenta encontrar links que levem a subpáginas de download
                 if not clicou:
-                    print(f"⚠️ Nenhum botão padrão encontrado. Tentando forçar clique em links de redirecionamento...")
-                    try:
-                        links = page.locator("a[href]")
-                        for i in range(min(links.count(), 10)):
-                            l = links.nth(i)
-                            href = l.get_attribute("href") or ""
-                            if not any(bad in href for bad in ["javascript", "#", "facebook", "twitter"]):
-                                if l.is_visible():
-                                    print(f"🔗 Clicando em link utilitário: {href[:40]}...")
-                                    l.click(timeout=2000)
-                                    time.sleep(4)
+                    print(f"⚠️ Varrendo links diretos e form actions no código-fonte...")
+                    forms = page.locator("form")
+                    if forms.count() > 0:
+                        for f_idx in range(forms.count()):
+                            try:
+                                form_el = forms.nth(f_idx)
+                                if form_el.is_visible():
+                                    print(f"📝 Submetendo formulário da etapa...")
+                                    form_el.evaluate("form => form.submit()")
+                                    clicou = True
+                                    time.sleep(5)
                                     break
-                    except:
-                        pass
+                            except:
+                                pass
 
                 if link_final:
                     break
 
         except Exception as e:
-        # Se ocorrer qualquer erro genérico
-            print(f"⚠️ Erro no fluxo: {e}")
+            print(f"⚠️ Erro na execução: {e}")
 
         browser.close()
 
@@ -186,4 +181,4 @@ if __name__ == "__main__":
         print("❌ Nenhuma URL fornecida!")
         sys.exit(1)
 
-    passar_encurtador_multietapas(url_input)
+    passar_encurtador_blog_advanced(url_input)
