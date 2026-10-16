@@ -1,114 +1,95 @@
 import os
 import sys
-import re
 import time
 import json
-from bs4 import BeautifulSoup
-from curl_cffi import requests
+from playwright.sync_api import sync_playwright
 
-def passar_encurtador_adlinkfly(url_encurtada):
+def passar_encurtador_playwright_api(url_encurtada):
     print("=" * 80)
-    print(f"🔓 BURLANDO ENCURTADOR (ADLINKFLY / API ENGINE)")
+    print(f"🔓 BURLANDO ENCURTADOR (PLAYWRIGHT + NETWORK INTERCEPTION)")
     print(f"🔗 URL Alvo: {url_encurtada}")
     print("=" * 80)
 
     link_final = None
-    
-    # Cria a sessão mantendo os cookies automaticamente
-    session = requests.Session(impersonate="chrome120")
-    
-    domain_base = "/".join(url_encurtada.split("/")[:3])
-    
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-        "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.9,en;q=0.9",
-        "Referer": url_encurtada,
-        "Origin": domain_base
-    }
 
-    try:
-        print("[1/4] Acessando a página inicial e capturando os cookies de sessão...")
-        response = session.get(url_encurtada, headers=headers, timeout=30)
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=True,
+            args=[
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-blink-features=AutomationControlled',
+                '--disable-infobars'
+            ]
+        )
         
-        if response.status_code != 200:
-            print(f"❌ Erro HTTP {response.status_code}: A página bloqueou a conexão.")
-            return
+        context = browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            viewport={'width': 1366, 'height': 768}
+        )
 
-        print("[2/4] Aguardando o temporizador interno do encurtador...")
-        time.sleep(8) # Tempo para os scripts liberarem o formulário
+        page = context.new_page()
+        page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
 
-        soup = BeautifulSoup(response.text, 'html.parser')
-
-        # Procura por links de download direto no HTML inicial
-        matches = re.findall(r'https?://(?:www\.)?(?:mediafire\.com|drive\.google\.com|mega\.nz|mega\.io)[^\s"\'<>]+', response.text)
-        if matches:
-            link_final = matches[0]
-
-        # Se não achou direto, busca o formulário do AdLinkFly
-        if not link_final:
-            form = soup.find('form')
-            if form:
-                action = form.get('action') or url_encurtada
-                if not action.startswith('http'):
-                    action = domain_base + (action if action.startswith('/') else '/' + action)
-
-                # Extrai os campos ocultos do formulário (tokens de segurança)
-                inputs = form.find_all('input')
-                data = {}
-                for inp in inputs:
-                    name = inp.get('name')
-                    value = inp.get('value', '')
-                    if name:
-                        data[name] = value
-
-                print(f"[3/4] Disparando requisição AJAX para a API do encurtador: {action}")
-                
-                # Adiciona o cabeçalho AJAX essencial para encurtadores AdLinkFly retornarem JSON
-                headers["Content-Type"] = "application/x-www-form-urlencoded; charset=UTF-8"
-                headers["X-Requested-With"] = "XMLHttpRequest"
-                
-                post_response = session.post(action, data=data, headers=headers, timeout=30)
-                
-                print(f"[4/4] Analisando resposta JSON/Texto do servidor...")
-                
-                # Tenta ler como JSON (padrão de retorno do AdLinkFly)
+        # Escuta todas as respostas de rede que passam pelo navegador
+        def handle_response(response):
+            nonlocal link_final
+            # Procura quando a API de verificação do encurtador responder
+            if "api-endpoint/verify" in response.url or "verify" in response.url:
                 try:
-                    json_resp = post_response.json()
-                    print(f"📦 Resposta da API recebida: {json.dumps(json_resp)}")
+                    body = response.json()
+                    print(f"📦 Pacote JSON interceptado da API: {json.dumps(body)}")
                     
-                    # Procura chaves comuns onde o link final costuma vir guardado
+                    # Varre o JSON em busca do link de destino final
                     for key in ['url', 'success_url', 'link', 'data']:
-                        if key in json_resp and json_resp[key]:
-                            val = json_resp[key]
-                            if isinstance(val, str) and val.startswith('http'):
+                        if key in body and isinstance(body[key], str) and body[key].startswith('http'):
+                            val = body[key]
+                            if not "shrtslug" in val and not "encurta" in val:
                                 link_final = val
                                 break
-                    
-                    # Se vier dentro de um objeto aninhado
-                    if not link_final and 'message' in json_resp and isinstance(json_resp['message'], str):
-                        msg_match = re.search(r'https?://[^\s"\'<>]+', json_resp['message'])
-                        if msg_match:
-                            link_final = msg_match.group(0)
-                except Exception as json_err:
-                    print(f"ℹ️ A resposta não veio em JSON puro. Analisando texto...")
+                except:
+                    pass
 
-                # Se o JSON não deu match, busca por regex na resposta do POST
-                if not link_final:
-                    matches_post = re.findall(r'https?://(?:www\.)?(?:mediafire\.com|drive\.google\.com|mega\.nz|mega\.io)[^\s"\'<>]+', post_response.text)
-                    if matches_post:
-                        link_final = matches_post[0]
+        page.on("response", handle_response)
 
-        # Varredura final de segurança no HTML bruto se ainda não achar
-        if not link_final:
-            urls = re.findall(r'https?://[^\s"\'<>]+', response.text)
-            for u in urls:
-                if any(dom in u for dom in ["mediafire.com", "drive.google.com", "mega.nz", "mega.io"]):
-                    link_final = u
-                    break
+        try:
+            print("[1/3] Acessando a página e executando JavaScript (passando no teste de adblock)...")
+            page.goto(url_encurtada, wait_until="domcontentloaded", timeout=40000)
+            
+            print("[2/3] Aguardando o temporizador rodar nativamente...")
+            time.sleep(12) # Tempo necessário para o timer interno zerar
 
-    except Exception as e:
-        print(f"⚠️ Erro de execução: {e}")
+            print("[3/3] Simulando clique no botão de liberação...")
+            seletores_botao = [
+                "#btn-main", "#get-link", "a#get-link", ".btn-success", 
+                "button#submit-button", ".get-link", "a.get-link",
+                "button.btn-primary", "input[type='submit']", "button"
+            ]
+
+            for seletor in seletores_botao:
+                try:
+                    btn = page.locator(seletor).first
+                    if btn.is_visible(timeout=1500):
+                        print(f"🎯 Clicando no elemento: {seletor}")
+                        btn.click(timeout=3000)
+                        time.sleep(4)
+                        if link_final:
+                            break
+                except:
+                    pass
+
+            # Verificação extra caso o link venha na URL da página atual
+            if not link_final:
+                time.sleep(3)
+                current_url = page.url
+                if any(dom in current_url for dom in ["mediafire.com", "drive.google.com", "mega.nz", "mega.io"]):
+                    link_final = current_url
+
+        except Exception as e:
+            print(f"⚠️ Erro na execução do Playwright: {e}")
+
+        browser.close()
 
     print("\n" + "=" * 80)
     if link_final:
@@ -124,4 +105,4 @@ if __name__ == "__main__":
         print("❌ Nenhuma URL fornecida!")
         sys.exit(1)
 
-    passar_encurtador_adlinkfly(url_input)
+    passar_encurtador_playwright_api(url_input)
