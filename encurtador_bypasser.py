@@ -4,13 +4,14 @@ import time
 import json
 from playwright.sync_api import sync_playwright
 
-def passar_encurtador_playwright_api(url_encurtada):
+def passar_encurtador_multietapas(url_inicial):
     print("=" * 80)
-    print(f"🔓 BURLANDO ENCURTADOR (PLAYWRIGHT + NETWORK INTERCEPTION)")
-    print(f"🔗 URL Alvo: {url_encurtada}")
+    print(f"🔓 BURLANDO ENCURTADOR MULTI-ETAPAS (MOTOR AUTOMATIZADO)")
+    print(f"🔗 URL Inicial: {url_inicial}")
     print("=" * 80)
 
     link_final = None
+    max_etapas = 8  # Suporta até 8 páginas de redirecionamento em sequência
 
     with sync_playwright() as p:
         browser = p.chromium.launch(
@@ -32,62 +33,107 @@ def passar_encurtador_playwright_api(url_encurtada):
         page = context.new_page()
         page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
 
-        # Escuta todas as respostas de rede que passam pelo navegador
+        # Interceptador de rede global para capturar JSONs de API em qualquer etapa
         def handle_response(response):
             nonlocal link_final
-            # Procura quando a API de verificação do encurtador responder
-            if "api-endpoint/verify" in response.url or "verify" in response.url:
+            if not link_final:
                 try:
-                    body = response.json()
-                    print(f"📦 Pacote JSON interceptado da API: {json.dumps(body)}")
-                    
-                    # Varre o JSON em busca do link de destino final
-                    for key in ['url', 'success_url', 'link', 'data']:
-                        if key in body and isinstance(body[key], str) and body[key].startswith('http'):
-                            val = body[key]
-                            if not "shrtslug" in val and not "encurta" in val:
-                                link_final = val
-                                break
+                    if "json" in response.headers.get("content-type", ""):
+                        body = response.json()
+                        def procurar_url_no_json(obj):
+                            nonlocal link_final
+                            if isinstance(obj, dict):
+                                for k, v in obj.items():
+                                    if isinstance(v, str) and v.startswith("http"):
+                                        if any(dom in v for dom in ["mediafire.com", "drive.google.com", "mega.nz", "mega.io"]):
+                                            link_final = v
+                                    elif isinstance(v, (dict, list)):
+                                        procurar_url_no_json(v)
+                            elif isinstance(obj, list):
+                                for item in obj:
+                                    procurar_url_no_json(item)
+                        procurar_url_no_json(body)
                 except:
                     pass
 
         page.on("response", handle_response)
 
         try:
-            print("[1/3] Acessando a página e executando JavaScript (passando no teste de adblock)...")
-            page.goto(url_encurtada, wait_until="domcontentloaded", timeout=40000)
-            
-            print("[2/3] Aguardando o temporizador rodar nativamente...")
-            time.sleep(12) # Tempo necessário para o timer interno zerar
+            print(f"🚀 Acessando URL inicial...")
+            page.goto(url_inicial, wait_until="domcontentloaded", timeout=40000)
 
-            print("[3/3] Simulando clique no botão de liberação...")
-            seletores_botao = [
-                "#btn-main", "#get-link", "a#get-link", ".btn-success", 
-                "button#submit-button", ".get-link", "a.get-link",
-                "button.btn-primary", "input[type='submit']", "button"
-            ]
+            domains_finais = ["mediafire.com", "drive.google.com", "mega.nz", "mega.io"]
 
-            for seletor in seletores_botao:
+            for etapa in range(1, max_etapas + 1):
+                current_url = page.url
+                print(f"\n--- [ETAPA {etapa}/{max_etapas}] URL atual: {current_url} ---")
+
+                # Verifica se já chegamos ao destino final na URL
+                if any(dom in current_url for dom in domains_finais):
+                    link_final = current_url
+                    break
+
+                # Aguarda o timer/carregamento da página atual
+                print(f"⏳ Aguardando temporizador e scripts da etapa {etapa}...")
+                time.sleep(6)
+
+                # Rola a página para ativar elementos visíveis
                 try:
-                    btn = page.locator(seletor).first
-                    if btn.is_visible(timeout=1500):
-                        print(f"🎯 Clicando no elemento: {seletor}")
-                        btn.click(timeout=3000)
-                        time.sleep(4)
-                        if link_final:
-                            break
+                    page.evaluate("window.scrollTo(0, document.body.scrollHeight / 2);")
                 except:
                     pass
 
-            # Verificação extra caso o link venha na URL da página atual
-            if not link_final:
-                time.sleep(3)
-                current_url = page.url
-                if any(dom in current_url for dom in ["mediafire.com", "drive.google.com", "mega.nz", "mega.io"]):
-                    link_final = current_url
+                # Lista de seletores e textos comuns em botões de avanço
+                seletores = [
+                    "#btn-main", "#get-link", "a#get-link", ".btn-success", 
+                    "button#submit-button", ".get-link", "a.get-link",
+                    "button.btn-primary", "input[type='submit']",
+                    "button:has-text('Continuar')", "button:has-text('Proceed')",
+                    "button:has-text('Get Link')", "button:has-text('Obter Link')",
+                    "a:has-text('Continuar')", "a:has-text('Get Link')", "a:has-text('Obter Link')",
+                    "button", "a.btn"
+                ]
+
+                clicou = False
+                for seletor in seletores:
+                    try:
+                        elementos = page.locator(seletor)
+                        count = elementos.count()
+                        for i in range(count):
+                            el = elementos.nth(i)
+                            if el.is_visible(timeout=1000):
+                                texto_el = el.inner_text().lower()
+                                print(f"🎯 Clicando no elemento [{seletor}] (Texto: '{texto_el[:20]}')...")
+                                
+                                # Tenta clicar lidando com novas abas/popups
+                                try:
+                                    with page.expect_popup(timeout=3000) as popup_info:
+                                        el.click(timeout=3000)
+                                    popup_page = popup_info.value
+                                    popup_page.wait_for_load_state("domcontentloaded", timeout=10000)
+                                    page = popup_page  # Alterna o foco para a nova aba
+                                    page.on("response", handle_response)
+                                except:
+                                    el.click(timeout=3000)
+                                    
+                                clicou = True
+                                time.sleep(4)
+                                break
+                        if clicou:
+                            break
+                    except:
+                        continue
+
+                if not clicou:
+                    print(f"⚠️ Nenhum botão interativo encontrado na etapa {etapa}. Tentando recarregar/avançar...")
+                    time.sleep(4)
+
+                # Se o link final foi capturado no meio do processo, encerra o loop
+                if link_final:
+                    break
 
         except Exception as e:
-            print(f"⚠️ Erro na execução do Playwright: {e}")
+            print(f"⚠️ Erro durante o fluxo multi-etapas: {e}")
 
         browser.close()
 
@@ -96,8 +142,9 @@ def passar_encurtador_playwright_api(url_encurtada):
         print(f"🎉 SUCESSO! LINK DIRETO EXTRAÍDO:")
         print(f"👉 {link_final}")
     else:
-        print("❌ Não foi possível capturar o link final nesta tentativa.")
+        print("❌ Não foi possível capturar o link final após todas as etapas.")
     print("=" * 80)
+    return link_final
 
 if __name__ == "__main__":
     url_input = os.getenv("SHORT_URL", "").strip()
@@ -105,4 +152,4 @@ if __name__ == "__main__":
         print("❌ Nenhuma URL fornecida!")
         sys.exit(1)
 
-    passar_encurtador_playwright_api(url_input)
+    passar_encurtador_multietapas(url_input)
