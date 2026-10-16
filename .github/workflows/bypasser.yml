@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       short_url:
-        description: 'Cole a URL do Encurtador (ex: EncurtaNet, etc)'
+        description: 'Cole a URL do Encurtador'
         required: true
-        default: 'https://encurta.net/exemplo'
+        default: 'https://shrtslug.biz/97rjy'
 
 jobs:
   pular-encurtador:
@@ -19,13 +19,11 @@ jobs:
       - name: Configurar Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
+          python-version: '3.10'
 
-      - name: Instalar Playwright e Navegador Chromium
+      - name: Instalar Dependências (curl_cffi)
         run: |
-          pip install playwright
-          playwright install chromium
-          playwright install-deps
+          pip install curl_cffi beautifulsoup4
 
       - name: Rodar Bypasser de Encurtador
         env:
