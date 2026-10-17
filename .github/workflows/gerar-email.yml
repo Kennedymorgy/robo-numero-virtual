@@ -1,0 +1,22 @@
+name: Gerar Email Temporario YT
+
+on:
+  workflow_dispatch: # Permite apertar o botão "Run workflow" no painel do GitHub quando quiser um e-mail novo
+
+jobs:
+  gerar-email:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout do Repositorio
+        uses: actions/checkout@v3
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: Instalar Dependencias
+        run: npm install axios
+
+      - name: Rodar Gerador de E-mail
+        run: node gerador-email-yt.js
